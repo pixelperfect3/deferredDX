@@ -2,7 +2,7 @@
 // File: DeferredShading.cpp
 //
 
-// Author: Shayan Javed
+// Author: Shayan Javed. Date: 5/26/2011
 // Advanced DXUT
 //
 // Copyright (c) Microsoft Corporation. All rights reserved.
