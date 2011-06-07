@@ -70,17 +70,14 @@ ID3D10InputLayout*      _quadLayout;
 
 
 // The Multiple Render Targets
-ID3D10Texture2D*                    _mrtTex;          // Environment map
-ID3D10RenderTargetView*             _mrtRTV;	     // Render target view for the alpha map
-//ID3D10RenderTargetView*             g_apEnvMapOneRTV[6];// 6 render target view, each view is used for 1 face of the env map
+ID3D10Texture2D*                    _mrtTex;       // Environment map
+ID3D10RenderTargetView*             _mrtRTV;	   // Render target view for the alpha map
 ID3D10ShaderResourceView*           _mrtSRV;       // Shader resource view for the cubic env map
-//ID3D10ShaderResourceView*           g_apEnvMapOneSRV[6];// Single-face shader resource view
-ID3D10Texture2D*                    _mrtMapDepth;     // Depth stencil for the environment map
+ID3D10Texture2D*                    _mrtMapDepth;  // Depth stencil for the environment map
 ID3D10DepthStencilView*             _mrtDSV;       // Depth stencil view for environment map for all 6 faces
-//ID3D10DepthStencilView*             g_pEnvMapOneDSV;    // Depth stencil view for environment map for all 1 face
-//ID3D10Buffer*                       g_pVBVisual;        // Vertex buffer for quad used for visualization
-//ID3D10ShaderResourceView*           g_pFalloffTexRV;    // Resource view for the falloff texture
-
+#define	NUMRTS 4;								   // number of render targets
+short								_textureToRender = 0; // keeps track of which texture to render
+ID3D10EffectScalarVariable*			g_TexToRender = NULL; // variable to send in which texture to render
 
 // World Matrix
 D3DXMATRIX                          g_World;
@@ -98,6 +95,13 @@ int						_width, _height;
 #define IDC_PUFF_SCALE          5
 #define IDC_PUFF_STATIC         6
 #define IDC_TOGGLEWARP          7
+
+// for texture
+#define IDC_TEXTUREGROUP        8
+#define IDC_VIEWDIFFUSE         9
+#define IDC_VIEWNORMALS		   10
+#define IDC_VIEWPOSITION       11
+#define IDC_VIEWDEPTH          12
 
 //--------------------------------------------------------------------------------------
 // Forward declarations 
@@ -196,6 +200,14 @@ void InitApp()
 
     iY += 24;
     g_SampleUI.AddCheckBox( IDC_TOGGLESPIN, L"Toggle Spinning", 35, iY += 24, 125, 22, g_bSpinning );
+
+	// textures
+	g_HUD.AddStatic( -1, L"Texture To Render:", 35, iY += 24, 100, 22 ); 
+	g_HUD.AddRadioButton( IDC_VIEWDIFFUSE, IDC_TEXTUREGROUP, L"Diffuse", 35, iY+= 24, 64, 18, true );   
+	g_HUD.AddRadioButton( IDC_VIEWNORMALS, IDC_TEXTUREGROUP, L"Normals", 35, iY+= 24, 64, 18 );   
+	g_HUD.AddRadioButton( IDC_VIEWPOSITION, IDC_TEXTUREGROUP, L"Position", 35, iY+= 24, 64, 18 );   
+	g_HUD.AddRadioButton( IDC_VIEWDEPTH, IDC_TEXTUREGROUP, L"Depth", 35, iY+= 24, 64, 18 );   
+
 }
 
 
@@ -303,7 +315,7 @@ HRESULT SetupMRTs(ID3D10Device* pd3dDevice) {
     dstex.Width = _width;
     dstex.Height = _height;
     dstex.MipLevels = 1;
-    dstex.ArraySize = 3;
+    dstex.ArraySize = NUMRTS;
     dstex.SampleDesc.Count = 1;
     dstex.SampleDesc.Quality = 0;
     dstex.Format = DXGI_FORMAT_D32_FLOAT;
@@ -321,7 +333,7 @@ HRESULT SetupMRTs(ID3D10Device* pd3dDevice) {
 	DescDS.Format = dstex.Format;
     DescDS.ViewDimension = D3D10_DSV_DIMENSION_TEXTURE2DARRAY;
     DescDS.Texture2DArray.FirstArraySlice = 0;
-    DescDS.Texture2DArray.ArraySize = 3;
+    DescDS.Texture2DArray.ArraySize = NUMRTS;
     DescDS.Texture2DArray.MipSlice = 0;
 
 	_mrtDSV = NULL;
@@ -341,7 +353,7 @@ HRESULT SetupMRTs(ID3D10Device* pd3dDevice) {
     DescRT.Format = dstex.Format;
     DescRT.ViewDimension = D3D10_RTV_DIMENSION_TEXTURE2DARRAY;
     DescRT.Texture2DArray.FirstArraySlice = 0;
-    DescRT.Texture2DArray.ArraySize = 3;
+    DescRT.Texture2DArray.ArraySize = NUMRTS;
     DescRT.Texture2DArray.MipSlice = 0;
     V_RETURN ( pd3dDevice->CreateRenderTargetView( _mrtTex, &DescRT, &_mrtRTV ) ); 
 
@@ -351,7 +363,7 @@ HRESULT SetupMRTs(ID3D10Device* pd3dDevice) {
 	SRVDesc.Format = dstex.Format;
     SRVDesc.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2DARRAY;
 	//SRVDesc.Texture2DArray;
-	SRVDesc.Texture2DArray.ArraySize = 3;
+	SRVDesc.Texture2DArray.ArraySize = NUMRTS;
 	SRVDesc.Texture2DArray.FirstArraySlice = 0;
 	SRVDesc.Texture2DArray.MipLevels = 1;
     //SRVDesc.TextureCube.MipLevels = 1;
@@ -402,11 +414,15 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
     g_pViewVariable = g_pEffect->GetVariableByName( "View" )->AsMatrix();
     g_pProjectionVariable = g_pEffect->GetVariableByName( "Projection" )->AsMatrix();
 	
-	// send in something other than puffiness
-    g_pPuffiness = g_pEffect->GetVariableByName( "Puffiness" )->AsScalar();
+	// send in puffiness
+    g_pPuffiness  = g_pEffect->GetVariableByName( "Puffiness" )->AsScalar();
 
     // Set Puffiness
     g_pPuffiness->SetFloat( g_fModelPuffiness );
+
+	// Send in which texture to render
+	g_TexToRender = g_pEffect->GetVariableByName( "TexToRender" )->AsScalar();
+	g_TexToRender->SetInt( _textureToRender );
 
     // Define the input layout
     const D3D10_INPUT_ELEMENT_DESC layout[] =
@@ -647,50 +663,15 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
     //
     pd3dDevice->IASetInputLayout( g_pVertexLayout );
 
-    //
-    // Render the mesh
-    //
-    /*UINT Strides[1];
-    UINT Offsets[1];
-    ID3D10Buffer* pVB[1];
-    pVB[0] = g_Mesh.GetVB10( 0, 0 );
-    Strides[0] = ( UINT )g_Mesh.GetVertexStride( 0, 0 );
-    Offsets[0] = 0;
-    pd3dDevice->IASetVertexBuffers( 0, 1, pVB, Strides, Offsets );
-    pd3dDevice->IASetIndexBuffer( g_Mesh.GetIB10( 0 ), g_Mesh.GetIBFormat10( 0 ), 0 );
-
-    D3D10_TECHNIQUE_DESC techDesc;
-    g_pTechnique->GetDesc( &techDesc );
-    SDKMESH_SUBSET* pSubset = NULL;
-    ID3D10ShaderResourceView* pDiffuseRV = NULL;
-    D3D10_PRIMITIVE_TOPOLOGY PrimType;
-
-    for( UINT p = 0; p < techDesc.Passes; ++p )
-    {
-        for( UINT subset = 0; subset < g_Mesh.GetNumSubsets( 0 ); ++subset )
-        {
-            pSubset = g_Mesh.GetSubset( 0, subset );
-
-            PrimType = g_Mesh.GetPrimitiveType10( ( SDKMESH_PRIMITIVE_TYPE )pSubset->PrimitiveType );
-            pd3dDevice->IASetPrimitiveTopology( PrimType );
-
-            pDiffuseRV = g_Mesh.GetMaterial( pSubset->MaterialID )->pDiffuseRV10;
-            g_ptxDiffuseVariable->SetResource( pDiffuseRV );
-
-            g_pTechnique->GetPassByIndex( p )->Apply( 0 );
-            pd3dDevice->DrawIndexed( ( UINT )pSubset->IndexCount, 0, ( UINT )pSubset->VertexStart );
-        }
-    }*/
-
-    //the mesh class also had a render method that allows rendering the mesh with the most common options
-    //g_Mesh.Render( pd3dDevice, g_pTechnique, g_ptxDiffuseVariable );
-
 	/** Render the full-screen quad **/
 	// Set the Vertex Layout
     //pd3dDevice->IASetInputLayout( gModelObject.pVertexLayout );
 
 	// update the attached texture
 	g_ptxDiffuseVariable->SetResource(  _mrtSRV );
+
+	// Send in which texture to render
+	g_TexToRender->SetInt( _textureToRender );
 
 	// set the buffers first
 	// Set vertex buffer
@@ -865,6 +846,15 @@ void CALLBACK OnGUIEvent( UINT nEvent, int nControlID, CDXUTControl* pControl, v
 {
     switch( nControlID )
     {
+		// Choosing which texture to render
+		case IDC_VIEWDIFFUSE:
+			_textureToRender = 0; break;
+		case IDC_VIEWNORMALS:
+			_textureToRender = 1; break;
+		case IDC_VIEWPOSITION:
+			_textureToRender = 2; break;
+		case IDC_VIEWDEPTH:
+			_textureToRender = 3; break;
         case IDC_TOGGLEFULLSCREEN:
             DXUTToggleFullScreen(); break;
         case IDC_TOGGLEREF:

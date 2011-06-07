@@ -32,6 +32,7 @@ cbuffer cbChangesEveryFrame
 cbuffer cbUserChanges
 {
     float Puffiness;
+	int   TexToRender;
 };
 
 struct VS_INPUT
@@ -102,10 +103,14 @@ float4 PS( PS_INPUT input) : SV_Target
 
 
 // Pixel Shader for rendering full-screen quad
+// 0 = diffuse 
+// 1 = normal (put specular in .w?)
+// 2 = position
+// 3 = depth
 float4 PSQuad( PS_INPUT input) : SV_Target 
 {
 	//float4 outputColor = float4(1.0, 0.0, 0.0, 1.0);
-	float4 outputColor = g_txDiffuse.Sample( samLinear, float3(input.Tex, 1) );
+	float4 outputColor = g_txDiffuse.Sample( samLinear, float3(input.Tex, TexToRender) );
 	return outputColor;
 }
 
@@ -159,7 +164,7 @@ GS_IN VSMRT( VS_INPUT input )
 //--------------------------------------------------------------------------------------
 // Geometry Shader For MRT
 //--------------------------------------------------------------------------------------
-[maxvertexcount(9)]
+[maxvertexcount(12)]
 void GSMRT( triangle GS_IN input[3], inout TriangleStream<PS_MRT_INPUT> CubeMapStream )
 {
 
@@ -167,7 +172,7 @@ void GSMRT( triangle GS_IN input[3], inout TriangleStream<PS_MRT_INPUT> CubeMapS
 	// 1 = normals
 	// 2 = depth
 
-	for( int f = 0; f < 3; ++f )
+	for( int f = 0; f < 4; ++f )
     {
         // Compute screen coordinates
         PS_MRT_INPUT output;
@@ -183,68 +188,22 @@ void GSMRT( triangle GS_IN input[3], inout TriangleStream<PS_MRT_INPUT> CubeMapS
         CubeMapStream.RestartStrip();
     }
 
-
-	// Output the positions first
-	/*PS_MRT_INPUT output;
-	output.RTIndex = 0;
-	for( int v = 0; v < 3; v++ )
-    {
-		output.Pos = input[v].Pos;
-		output.Tex = input[v].Tex;
-        CubeMapStream.Append( output );
-    }
-	CubeMapStream.RestartStrip();
-
-	// Now the normals
-	PS_MRT_INPUT output2;
-	output2.RTIndex = 1;
-	for( int v = 0; v < 3; v++ )
-    {
-		output2.Pos = float4(input[v].Norm, 0.5);
-		output2.Tex = input[v].Tex;
-        CubeMapStream.Append( output2 );
-    }
-	CubeMapStream.RestartStrip();
-
-	// Now finally the depth - should be done in pixel shader
-	PS_MRT_INPUT output3;
-	output3.RTIndex = 2;
-	for( int v = 0; v < 3; v++ )
-    {
-		output3.Pos = float4(input[v].Norm, 1.0);
-		output3.Tex = input[v].Tex;
-        CubeMapStream.Append( output3 );
-    }*/
-
 } // end of geometry shader
-
-
-// Pixel Shader for rendering to MRTs
-/*PSOut PSMRT( PS_MRT_INPUT input) : SV_Target
-{
-	PSOut outputColor = (PSOut)0;
-
-	//outputColor.color1 = float4(1.0, 1.0, 1.0, 1.0);
-	//outputColor.color2 = float4(1.0, 0.0, 0.0, 1.0);
-	//outputColor.color3 = float4(1.0, 0.0, 1.0, 1.0);
-
-	outputColor.color1 = g_txDiffuse.Sample( samLinear, float3(input.Tex, 0) );//float4(input.Pos * 1.0);//, 0.5); // The diffuse color
-	outputColor.color2 = float4(input.Norm, 0.5);		// The normals
-	outputColor.color3 = float4(0.0, 1.0, 0.0, 1.0);	// supposed to be the depth
-
-	//float4 outputColor = float4(1.0, 0.0, 0.0, 1.0);
-	
-	return outputColor;
-}*/
 
 float4 PSMRT( PS_MRT_INPUT input ) : SV_Target
 {
-	if (input.RTIndex == 0) // diffuse
+	if (input.RTIndex == 0)		 // diffuse
 		return g_txDiffuse.Sample( samLinear, float3(input.Tex, 0) );//return float4(1.0, 0.0, 0.0, 1.0);
 	else if (input.RTIndex == 1) // normal
 		return float4(input.Norm, 1.0);//return float4(0.0, 1.0, 0.0, 1.0);
-	else
-		return float4(0.0, 0.0, 1.0, 1.0);
+	else if (input.RTIndex == 2) // position
+		return input.Pos;//return float4(1.0, 0.0, 0.0, 1.0);
+	else {						 // depth
+		float normalizedDistance = input.Pos.z / input.Pos.w;
+		// scale it from 0-1
+		normalizedDistance = (normalizedDistance + 1.0) / 2.0;
+		return float4(normalizedDistance, normalizedDistance, normalizedDistance, 1.0);
+	}
     //return input.Pos;
 }
 
