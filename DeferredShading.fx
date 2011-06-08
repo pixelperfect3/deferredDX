@@ -1,14 +1,15 @@
 //--------------------------------------------------------------------------------------
-// File: Tutorial10.fx
-//
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// File: DeferredShading.fx
+
+// Author: @pixelperfect3 (GitHub) - Shayan Javed
+// This is the shader file for DeferredRendering
 //--------------------------------------------------------------------------------------
 
 
 //--------------------------------------------------------------------------------------
 // Constant Buffer Variables
 //--------------------------------------------------------------------------------------
-Texture2DArray g_txDiffuse;
+Texture2DArray g_txDiffuse; // the diffuse variable for the mesh
 
 SamplerState samLinear
 {
@@ -17,9 +18,15 @@ SamplerState samLinear
     AddressV = Wrap;
 };
 
-cbuffer cbConstant
+// lighting variables
+cbuffer cbConstant 
 {
-    float3 vLightDir = float3(-0.577,0.577,-0.577);
+	float3 vLightPos	= float3(1.0, -3.0, -1.0);
+    float3 vLightDir	= float3(-0.577,0.577,-0.577);
+	float4 vLightColor	= float4(0.4,0.2,0.8, 1.0);
+	float4 matDiffuse	= float4(0.0, 0.8, 0.0, 1.0);//(0.5, 0.5, 0.0, 1.0);
+	float4 matSpecular	= float4(0.1, 0.1, 0.1, 0.1);
+	float  matShininess	= 1000.0;
 };
 
 cbuffer cbChangesEveryFrame
@@ -41,9 +48,6 @@ struct VS_INPUT
     float3 Norm         : NORMAL;           //normal
     float2 Tex          : TEXCOORD0;        //texture coordinate
 };
-
-
-
 
 struct PS_INPUT
 {
@@ -84,6 +88,7 @@ PS_INPUT VS( VS_INPUT input )
     output.Norm = mul( input.Norm, World );
 	output.Norm = mul( output.Norm, View );
     output.Norm = mul( output.Norm, Projection );
+	output.Norm = normalize(output.Norm);
     output.Tex = input.Tex;
     
     return output;
@@ -109,8 +114,49 @@ float4 PS( PS_INPUT input) : SV_Target
 // 3 = depth
 float4 PSQuad( PS_INPUT input) : SV_Target 
 {
-	//float4 outputColor = float4(1.0, 0.0, 0.0, 1.0);
-	float4 outputColor = g_txDiffuse.Sample( samLinear, float3(input.Tex, TexToRender) );
+	// get all the values
+
+	// Diffuse
+	float4 diffuse	= g_txDiffuse.Sample( samLinear, float3(input.Tex, 0) );
+	if (TexToRender == 0)
+		return diffuse;
+
+	// normals 
+	float4 normals	= g_txDiffuse.Sample( samLinear, float3(input.Tex, 1) );
+	if (TexToRender == 1)
+		return normals;
+
+	// position
+	float4 position = g_txDiffuse.Sample( samLinear, float3(input.Tex, 2) );
+	if (TexToRender == 2)
+		return position;
+
+	// depth
+	float4 depth	= g_txDiffuse.Sample( samLinear, float3(input.Tex, 3) );
+	if (TexToRender == 3)
+		return depth;
+
+	// else calculate the light value
+
+	// (convert from texture space [0,1] to world space [-1, +1])
+	normals =  (normals - 0.5) * 2.0;
+
+	float3 lightDir = vLightPos - position.xyz;
+	float3 eyeVec   = -position.xyz;
+	float3 N        = normalize(normals);
+	float3 E        = normalize(eyeVec);
+	float3 L        = normalize(lightDir);
+	float3 reflectV = reflect(L, normals.xyz);
+
+	// diffuse
+	float4 dTerm = diffuse * max(dot(N, L), 0.0);
+
+	// specular
+	float4 specular = matSpecular * pow(max(dot(reflectV, E), 0.0), matShininess);
+
+	//float4 outputColor = diffuse * normals * position * depth;
+	float4 outputColor = dTerm + specular;
+
 	return outputColor;
 }
 
@@ -194,8 +240,13 @@ float4 PSMRT( PS_MRT_INPUT input ) : SV_Target
 {
 	if (input.RTIndex == 0)		 // diffuse
 		return g_txDiffuse.Sample( samLinear, float3(input.Tex, 0) );//return float4(1.0, 0.0, 0.0, 1.0);
-	else if (input.RTIndex == 1) // normal
-		return float4(input.Norm, 1.0);//return float4(0.0, 1.0, 0.0, 1.0);
+	else if (input.RTIndex == 1) { // normal
+		// convert normal to texture space [-1;+1] -> [0;1]
+		float4 normal;
+		normal.xyz = input.Norm * 0.5 + 0.5;
+		normal.w = 1.0;
+		return normal;
+	}
 	else if (input.RTIndex == 2) // position
 		return input.Pos;//return float4(1.0, 0.0, 0.0, 1.0);
 	else {						 // depth
@@ -247,5 +298,4 @@ technique10 Render
 	}
 
 }
-
 

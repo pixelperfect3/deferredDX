@@ -33,7 +33,11 @@ using namespace std;
 //--------------------------------------------------------------------------------------
 // Global Variables
 //--------------------------------------------------------------------------------------
-CModelViewerCamera                  g_Camera;               // A model viewing camera
+CModelViewerCamera                  g_Camera, t_Camera;     // A model viewing camera and the second one
+															// is used for viewing the final textured quad
+
+
+
 CDXUTDialogResourceManager          g_DialogResourceManager;// manager for shared resources of dialogs
 CD3DSettingsDlg                     g_D3DSettingsDlg;       // Device settings dialog
 CDXUTDialog                         g_HUD;                  // manages the 3D UI
@@ -79,8 +83,8 @@ ID3D10DepthStencilView*             _mrtDSV;       // Depth stencil view for env
 short								_textureToRender = 0; // keeps track of which texture to render
 ID3D10EffectScalarVariable*			g_TexToRender = NULL; // variable to send in which texture to render
 
-// World Matrix
-D3DXMATRIX                          g_World;
+// World Matrices
+D3DXMATRIX                          g_World, t_World;
 
 // window width and height
 int						_width, _height;
@@ -102,6 +106,7 @@ int						_width, _height;
 #define IDC_VIEWNORMALS		   10
 #define IDC_VIEWPOSITION       11
 #define IDC_VIEWDEPTH          12
+#define IDC_VIEWCOMPOSITE      13
 
 //--------------------------------------------------------------------------------------
 // Forward declarations 
@@ -207,6 +212,7 @@ void InitApp()
 	g_HUD.AddRadioButton( IDC_VIEWNORMALS, IDC_TEXTUREGROUP, L"Normals", 35, iY+= 24, 64, 18 );   
 	g_HUD.AddRadioButton( IDC_VIEWPOSITION, IDC_TEXTUREGROUP, L"Position", 35, iY+= 24, 64, 18 );   
 	g_HUD.AddRadioButton( IDC_VIEWDEPTH, IDC_TEXTUREGROUP, L"Depth", 35, iY+= 24, 64, 18 );   
+	g_HUD.AddRadioButton( IDC_VIEWCOMPOSITE, IDC_TEXTUREGROUP, L"Composite", 35, iY+= 24, 64, 18 );
 
 }
 
@@ -240,19 +246,19 @@ bool InitializeQuad() {
 	  |    |
 	  0----1 */
 
-	v[0].Pos = D3DXVECTOR3(-800.0, -400.0, 0.0);
+	v[0].Pos = D3DXVECTOR3(-_width/2.0, -_height/2.0, 0.0);//-800.0, -400.0, 0.0);
 	v[0].Normal = D3DXVECTOR3(0, 0, 1.0);
 	v[0].TexCoord = D3DXVECTOR2(0, 0);
 
-	v[1].Pos = D3DXVECTOR3(800.0, -400.0, 0.0);
+	v[1].Pos = D3DXVECTOR3(_width/2.0, -_height/2.0, 0.0);//800.0, -400.0, 0.0);
 	v[1].Normal = D3DXVECTOR3(0, 0, 1.0);
 	v[1].TexCoord = D3DXVECTOR2(1, 0);
 
-	v[2].Pos = D3DXVECTOR3(-800.0, 400.0, 0.0);
+	v[2].Pos = D3DXVECTOR3(-_width/2.0, _height/2.0, 0.0);//-800.0, 400.0, 0.0);
 	v[2].Normal = D3DXVECTOR3(0, 0, 1.0);
 	v[2].TexCoord = D3DXVECTOR2(0, 1);
 
-	v[3].Pos = D3DXVECTOR3(800.0, 400.0, 0.0);
+	v[3].Pos = D3DXVECTOR3(_width/2.0, _height/2.0, 0.0);//800.0, 400.0, 0.0);
 	v[3].Normal = D3DXVECTOR3(0, 0, 1.0);
 	v[3].TexCoord = D3DXVECTOR2(1, 1);
 
@@ -447,6 +453,7 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
 
     // Initialize the world matrices
     D3DXMatrixIdentity( &g_World );
+	D3DXMatrixIdentity( &t_World );
 
 	// Initialize the quad mesh (for render to texture)
 	InitializeQuad();
@@ -455,24 +462,16 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
 	SetupMRTs(pd3dDevice);
    
 	// Create cubic depth stencil texture.
-   /* D3D10_TEXTURE2D_DESC dstex;
-    dstex.Width = _width;
-    dstex.Height = _height;
-    dstex.MipLevels = 1;
-    dstex.ArraySize = 3;
-    dstex.SampleDesc.Count = 1;
-    dstex.SampleDesc.Quality = 0;
-    dstex.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;//DXGI_FORMAT_R32_FLOAT;//DXGI_FORMAT_D32_FLOAT;
-    dstex.Usage = D3D10_USAGE_DEFAULT;
-    dstex.BindFlags = D3D10_BIND_DEPTH_STENCIL;
-    dstex.CPUAccessFlags = 0;
-    //dstex.MiscFlags = D3D10_RESOURCE_MISC_TEXTURECUBE;
-    V_RETURN(  pd3dDevice->CreateTexture2D( &dstex, NULL, &_mrtMapDepth )); */
-
     // Initialize the camera
-    D3DXVECTOR3 Eye( 0.0f, 0.0f, 700.0f );
+    D3DXVECTOR3 Eye( 0.0f, 0.0f, -800.0f );
     D3DXVECTOR3 At( 0.0f, 0.0f, 0.0f );
     g_Camera.SetViewParams( &Eye, &At );
+
+	// Set the textured quad camera
+	//D3DXVECTOR3 Eye( 0.0f, 0.0f, 700.0f );
+    //D3DXVECTOR3 At( 0.0f, 0.0f, 0.0f );
+	D3DXVECTOR3 Eye2( 0.0f, 0.0f, 700.0f );
+    t_Camera.SetViewParams( &Eye2, &At );
 
     return S_OK;
 }
@@ -504,135 +503,119 @@ HRESULT CALLBACK OnD3D10ResizedSwapChain( ID3D10Device* pd3dDevice, IDXGISwapCha
     return S_OK;
 }
 
+//--------------------------------------------------------------------------------------
+// Renders all the textures:
+// -Diffuse
+// -Normals
+// -Position
+// -Depth
+//--------------------------------------------------------------------------------------
+void RenderTextures( ID3D10Device* pd3dDevice) {
+	// Set a new viewport for rendering to texture(s)
+	D3D10_VIEWPORT SMVP;
+	SMVP.Height = _height;
+	SMVP.Width = _width;
+	SMVP.MinDepth = 0;
+	SMVP.MaxDepth = 1;
+	SMVP.TopLeftX = 0;
+	SMVP.TopLeftY = 0;
+	pd3dDevice->RSSetViewports( 1, &SMVP );
+
+    float ClearColor[4] ={ 0.0f, 0.0f, 0.0f, 1.0f };
+
+	// Clear Textures
+    pd3dDevice->ClearRenderTargetView( _mrtRTV, ClearColor );
+    pd3dDevice->ClearDepthStencilView( _mrtDSV, D3D10_CLEAR_DEPTH, 1.0, 0 );
+	
+	//ID3D10InputLayout* pLayout = g_pVertexLayoutCM;
+    //ID3D10EffectTechnique* pTechnique = g_pRenderCubeMapTech;
+
+	// set input layout
+	pd3dDevice->IASetInputLayout( g_pVertexLayout );
+
+	// Set all the render targets
+    ID3D10RenderTargetView* aRTViews[ 1 ] = { _mrtRTV };
+	UINT numRenderTargets = sizeof( aRTViews ) / sizeof( aRTViews[0] );
+	pd3dDevice->OMSetRenderTargets( numRenderTargets, aRTViews, _mrtDSV );
+
+	// Render the objects
+
+	// Get the technique
+	D3D10_TECHNIQUE_DESC techDesc;
+	g_pTechnique->GetDesc( &techDesc );
+
+	// send the camera variables
+	g_pProjectionVariable->SetMatrix( ( float* )g_Camera.GetProjMatrix() );
+	g_pViewVariable->SetMatrix( ( float* )g_Camera.GetViewMatrix() );
+	g_pWorldVariable->SetMatrix( ( float* )&g_World );
+
+	/** Render the Mesh ***/
+	UINT Strides[1];
+	UINT Offsets[1];
+	ID3D10Buffer* pVB[1];
+	pVB[0] = g_Mesh.GetVB10( 0, 0 );
+	Strides[0] = ( UINT )g_Mesh.GetVertexStride( 0, 0 );
+	Offsets[0] = 0;
+	pd3dDevice->IASetVertexBuffers( 0, 1, pVB, Strides, Offsets );
+	pd3dDevice->IASetIndexBuffer( g_Mesh.GetIB10( 0 ), g_Mesh.GetIBFormat10( 0 ), 0 );
+
+	//D3D10_TECHNIQUE_DESC techDesc;
+	g_pTechnique->GetDesc( &techDesc );
+	SDKMESH_SUBSET* pSubset = NULL;
+	ID3D10ShaderResourceView* pDiffuseRV = NULL;
+	D3D10_PRIMITIVE_TOPOLOGY PrimType;
+
+	//for( UINT p = 0; p < techDesc.Passes; ++p )
+	//{
+	for( UINT subset = 0; subset < g_Mesh.GetNumSubsets( 0 ); ++subset )
+	{
+		pSubset = g_Mesh.GetSubset( 0, subset );
+
+		PrimType = g_Mesh.GetPrimitiveType10( ( SDKMESH_PRIMITIVE_TYPE )pSubset->PrimitiveType );
+		pd3dDevice->IASetPrimitiveTopology( PrimType );
+
+		pDiffuseRV = g_Mesh.GetMaterial( pSubset->MaterialID )->pDiffuseRV10;
+		g_ptxDiffuseVariable->SetResource( pDiffuseRV );
+
+		g_pTechnique->GetPassByIndex( 2 )->Apply( 0 );
+		pd3dDevice->DrawIndexed( ( UINT )pSubset->IndexCount, 0, ( UINT )pSubset->VertexStart );
+	}
+} // End Render Textures
 
 //--------------------------------------------------------------------------------------
 // Render the scene using the D3D10 device
 //--------------------------------------------------------------------------------------
 void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float fElapsedTime, void* pUserContext )
 {
-	// First render to texture
 	// Save the old RT and DS buffer views
-    ID3D10RenderTargetView* apOldRTVs[1] = { NULL };
-    ID3D10DepthStencilView* pOldDS = NULL;
-    pd3dDevice->OMGetRenderTargets( 1, apOldRTVs, &pOldDS );
+	ID3D10RenderTargetView* apOldRTVs[1] = { NULL };
+	ID3D10DepthStencilView* pOldDS = NULL;
+	pd3dDevice->OMGetRenderTargets( 1, apOldRTVs, &pOldDS );
 
-    // Save the old viewport
-    D3D10_VIEWPORT OldVP;
-    UINT cRT = 1;
-    pd3dDevice->RSGetViewports( &cRT, &OldVP );
+	// Save the old viewport
+	D3D10_VIEWPORT OldVP;
+	UINT cRT = 1;
+	pd3dDevice->RSGetViewports( &cRT, &OldVP );
 
-    // Set a new viewport for rendering to texture(s)
-    D3D10_VIEWPORT SMVP;
-    SMVP.Height = 768;
-    SMVP.Width = 1024;
-    SMVP.MinDepth = 0;
-    SMVP.MaxDepth = 1;
-    SMVP.TopLeftX = 0;
-    SMVP.TopLeftY = 0;
-    pd3dDevice->RSSetViewports( 1, &SMVP );
-
-   
 	/** Start rendering to all the textures **/
-        float ClearColor[4] ={ 0.0f, 0.0f, 0.0f, 1.0f };
-
-		// Clear Textures
-        pd3dDevice->ClearRenderTargetView( _mrtRTV, ClearColor );
-        pd3dDevice->ClearDepthStencilView( _mrtDSV, D3D10_CLEAR_DEPTH, 1.0, 0 );
-
-        //ID3D10InputLayout* pLayout = g_pVertexLayoutCM;
-        //ID3D10EffectTechnique* pTechnique = g_pRenderCubeMapTech;
-
-		// set input layout
-		pd3dDevice->IASetInputLayout( g_pVertexLayout );
-
-		// Set all the render targets
-        ID3D10RenderTargetView* aRTViews[ 1 ] = { _mrtRTV };
-		UINT numRenderTargets = sizeof( aRTViews ) / sizeof( aRTViews[0] );
-		pd3dDevice->OMSetRenderTargets( numRenderTargets, aRTViews, _mrtDSV );
-
-
-		// Render the objects
-
-		// Render full-screen quad?
-		// Set vertex buffer
-		UINT stride = sizeof(VPNS);
-		UINT offset = 0;
-
-		/*pd3dDevice->IASetVertexBuffers(0, 1, &_quadVB, &stride, &offset);
-
-		// Set index buffer
-		pd3dDevice->IASetIndexBuffer(_quadIB, DXGI_FORMAT_R32_UINT, 0 );
-
-		// Set primitive topology to be a a trianglestrip
-		pd3dDevice->IASetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP); */
-
-		// Apply Pass #1
-		D3D10_TECHNIQUE_DESC techDesc;
-		g_pTechnique->GetDesc( &techDesc );
-
-		// send the camera variables
-		g_pProjectionVariable->SetMatrix( ( float* )g_Camera.GetProjMatrix() );
-		g_pViewVariable->SetMatrix( ( float* )g_Camera.GetViewMatrix() );
-		g_pWorldVariable->SetMatrix( ( float* )&g_World );
-
-
-			/** Render the Mesh ***/
-			UINT Strides[1];
-			UINT Offsets[1];
-			ID3D10Buffer* pVB[1];
-			pVB[0] = g_Mesh.GetVB10( 0, 0 );
-			Strides[0] = ( UINT )g_Mesh.GetVertexStride( 0, 0 );
-			Offsets[0] = 0;
-			pd3dDevice->IASetVertexBuffers( 0, 1, pVB, Strides, Offsets );
-			pd3dDevice->IASetIndexBuffer( g_Mesh.GetIB10( 0 ), g_Mesh.GetIBFormat10( 0 ), 0 );
-
-			//D3D10_TECHNIQUE_DESC techDesc;
-			g_pTechnique->GetDesc( &techDesc );
-			SDKMESH_SUBSET* pSubset = NULL;
-			ID3D10ShaderResourceView* pDiffuseRV = NULL;
-			D3D10_PRIMITIVE_TOPOLOGY PrimType;
-
-			//for( UINT p = 0; p < techDesc.Passes; ++p )
-			//{
-				for( UINT subset = 0; subset < g_Mesh.GetNumSubsets( 0 ); ++subset )
-				{
-					pSubset = g_Mesh.GetSubset( 0, subset );
-
-					PrimType = g_Mesh.GetPrimitiveType10( ( SDKMESH_PRIMITIVE_TYPE )pSubset->PrimitiveType );
-					pd3dDevice->IASetPrimitiveTopology( PrimType );
-
-					pDiffuseRV = g_Mesh.GetMaterial( pSubset->MaterialID )->pDiffuseRV10;
-					g_ptxDiffuseVariable->SetResource( pDiffuseRV );
-
-					g_pTechnique->GetPassByIndex( 2 )->Apply( 0 );
-					pd3dDevice->DrawIndexed( ( UINT )pSubset->IndexCount, 0, ( UINT )pSubset->VertexStart );
-				}
-			//}
-
+	RenderTextures(pd3dDevice);
 		
+	/** Now render the full-screen quad with texture **/
+	UINT stride = sizeof(VPNS);
+	UINT offset = 0;
 
-		// apply regular rendering
-		//g_pTechnique->GetPassByIndex(2)->Apply(0);
-		
-		// draw
-		//pd3dDevice->DrawIndexed(_numIQuad, 0, 0);
-		// end render to mrts
 
-		// Restore old view port
-		pd3dDevice->RSSetViewports( 1, &OldVP );
+	// Restore old view port
+	pd3dDevice->RSSetViewports( 1, &OldVP );
 
-		// Restore old RT and DS buffer views
-		pd3dDevice->OMSetRenderTargets( 1, apOldRTVs, pOldDS );
+	// Restore old RT and DS buffer views
+	pd3dDevice->OMSetRenderTargets( 1, apOldRTVs, pOldDS );
 
 	/** DONE TEXTURE PASS */
-
-	//ID3D10ShaderResourceView*const pSRV[3] = { NULL, NULL, NULL};
-    //pd3dDevice->PSSetShaderResources( 0, 3, pSRV );
 
     //
     // Clear the back buffer
     //
-   // ClearColor[4] = { 0.0f, 0.125f, 0.3f, 1.0f }; // red, green, blue, alpha
     ID3D10RenderTargetView* pRTV = DXUTGetD3D10RenderTargetView();
 	float ClearColor2[4] ={ 0.0f, 0.125f, 0.3f, 1.0f };
     pd3dDevice->ClearRenderTargetView( pRTV, ClearColor2 );
@@ -654,9 +637,9 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
     //
     // Update variables that change once per frame
     //
-    g_pProjectionVariable->SetMatrix( ( float* )g_Camera.GetProjMatrix() );
-    g_pViewVariable->SetMatrix( ( float* )g_Camera.GetViewMatrix() );
-    g_pWorldVariable->SetMatrix( ( float* )&g_World );
+    g_pProjectionVariable->SetMatrix( ( float* )t_Camera.GetProjMatrix() );
+    g_pViewVariable->SetMatrix( ( float* )t_Camera.GetViewMatrix() );
+    g_pWorldVariable->SetMatrix( ( float* )&t_World );
 
     //
     // Set the Vertex Layout
@@ -687,7 +670,8 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
     pd3dDevice->IASetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
 	// Apply Pass #1
-    g_pTechnique->GetDesc( &techDesc );
+	D3D10_TECHNIQUE_DESC techDesc;
+	g_pTechnique->GetDesc( &techDesc );
 
 	// apply regular rendering
     g_pTechnique->GetPassByIndex(1)->Apply(0);
@@ -777,14 +761,14 @@ void CALLBACK OnFrameMove( double fTime, float fElapsedTime, void* pUserContext 
     // Update the camera's position based on user input 
     g_Camera.FrameMove( fElapsedTime );
 
-    /*if( g_bSpinning )
+    if( g_bSpinning )
         D3DXMatrixRotationY( &g_World, 60.0f * DEG2RAD((float)fTime) );
     else
         D3DXMatrixRotationY( &g_World, DEG2RAD( 180.0f ) );
 
     D3DXMATRIX mRot;
     D3DXMatrixRotationX( &mRot, DEG2RAD( -90.0f ) );
-    g_World = mRot * g_World;*/
+    g_World = mRot * g_World;
 }
 
 
@@ -855,6 +839,8 @@ void CALLBACK OnGUIEvent( UINT nEvent, int nControlID, CDXUTControl* pControl, v
 			_textureToRender = 2; break;
 		case IDC_VIEWDEPTH:
 			_textureToRender = 3; break;
+		case IDC_VIEWCOMPOSITE:
+			_textureToRender = 4; break;
         case IDC_TOGGLEFULLSCREEN:
             DXUTToggleFullScreen(); break;
         case IDC_TOGGLEREF:
@@ -880,4 +866,3 @@ void CALLBACK OnGUIEvent( UINT nEvent, int nControlID, CDXUTControl* pControl, v
         }
     }
 }
-
