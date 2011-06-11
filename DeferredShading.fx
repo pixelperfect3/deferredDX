@@ -9,11 +9,21 @@
 //--------------------------------------------------------------------------------------
 // Constant Buffer Variables
 //--------------------------------------------------------------------------------------
-Texture2DArray g_txDiffuse; // the diffuse variable for the mesh
+Texture2DArray _mrtTextures; 
+Texture2D g_txDiffuse; // the diffuse variable for the mesh
 
 SamplerState samLinear
 {
     Filter = MIN_MAG_MIP_LINEAR;
+	//Filter = ANISOTROPIC;
+    AddressU = Wrap;
+    AddressV = Wrap;
+};
+
+SamplerState samPoint
+{
+    Filter = MIN_MAG_MIP_POINT;
+	//Filter = ANISOTROPIC;
     AddressU = Wrap;
     AddressV = Wrap;
 };
@@ -26,7 +36,7 @@ cbuffer cbConstant
 	float4 vLightColor	= float4(0.4,0.2,0.8, 1.0);
 	float4 matDiffuse	= float4(0.0, 0.8, 0.0, 1.0);//(0.5, 0.5, 0.0, 1.0);
 	float4 matSpecular	= float4(0.1, 0.1, 0.1, 0.1);
-	float  matShininess	= 1000.0;
+	float  matShininess	= 4.0;
 };
 
 cbuffer cbChangesEveryFrame
@@ -117,22 +127,22 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	// get all the values
 
 	// Diffuse
-	float4 diffuse	= g_txDiffuse.Sample( samLinear, float3(input.Tex, 0) );
+	float4 diffuse	= _mrtTextures.Sample( samPoint, float3(input.Tex, 0) );
 	if (TexToRender == 0)
 		return diffuse;
 
 	// normals 
-	float4 normals	= g_txDiffuse.Sample( samLinear, float3(input.Tex, 1) );
+	float4 normals	= _mrtTextures.Sample( samPoint, float3(input.Tex, 1) );
 	if (TexToRender == 1)
 		return normals;
 
 	// position
-	float4 position = g_txDiffuse.Sample( samLinear, float3(input.Tex, 2) );
+	float4 position = _mrtTextures.Sample( samPoint, float3(input.Tex, 2) );
 	if (TexToRender == 2)
 		return position;
 
 	// depth
-	float4 depth	= g_txDiffuse.Sample( samLinear, float3(input.Tex, 3) );
+	float4 depth	= _mrtTextures.Sample( samPoint, float3(input.Tex, 3) );
 	if (TexToRender == 3)
 		return depth;
 
@@ -146,7 +156,7 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	float3 N        = normalize(normals);
 	float3 E        = normalize(eyeVec);
 	float3 L        = normalize(lightDir);
-	float3 reflectV = reflect(L, normals.xyz);
+	float3 reflectV = reflect(-L, normals.xyz);
 
 	// diffuse
 	float4 dTerm = diffuse * max(dot(N, L), 0.0);
@@ -298,4 +308,3 @@ technique10 Render
 	}
 
 }
-

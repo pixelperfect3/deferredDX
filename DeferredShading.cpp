@@ -53,7 +53,7 @@ ID3D10EffectTechnique*              g_pTechnique = NULL;
 // Some mesh? 
 CDXUTSDKMesh                        g_Mesh;
 
-// A shader resource variable........
+// A shader resource variable to send in the model's texture
 ID3D10EffectShaderResourceVariable* g_ptxDiffuseVariable = NULL;
 
 // Camera variables sent in to the shader
@@ -77,9 +77,11 @@ ID3D10InputLayout*      _quadLayout;
 ID3D10Texture2D*                    _mrtTex;       // Environment map
 ID3D10RenderTargetView*             _mrtRTV;	   // Render target view for the alpha map
 ID3D10ShaderResourceView*           _mrtSRV;       // Shader resource view for the cubic env map
+ID3D10EffectShaderResourceVariable* _mrtTextureVariable = NULL; // for sending in the mrts
 ID3D10Texture2D*                    _mrtMapDepth;  // Depth stencil for the environment map
 ID3D10DepthStencilView*             _mrtDSV;       // Depth stencil view for environment map for all 6 faces
 #define	NUMRTS 4;								   // number of render targets
+#define TEXSCALE 2;								   // scale of the render targets
 short								_textureToRender = 0; // keeps track of which texture to render
 ID3D10EffectScalarVariable*			g_TexToRender = NULL; // variable to send in which texture to render
 
@@ -212,7 +214,7 @@ void InitApp()
 	g_HUD.AddRadioButton( IDC_VIEWNORMALS, IDC_TEXTUREGROUP, L"Normals", 35, iY+= 24, 64, 18 );   
 	g_HUD.AddRadioButton( IDC_VIEWPOSITION, IDC_TEXTUREGROUP, L"Position", 35, iY+= 24, 64, 18 );   
 	g_HUD.AddRadioButton( IDC_VIEWDEPTH, IDC_TEXTUREGROUP, L"Depth", 35, iY+= 24, 64, 18 );   
-	g_HUD.AddRadioButton( IDC_VIEWCOMPOSITE, IDC_TEXTUREGROUP, L"Composite", 35, iY+= 24, 64, 18 );
+	g_HUD.AddRadioButton( IDC_VIEWCOMPOSITE, IDC_TEXTUREGROUP, L"Composite", 35, iY+= 24, 100, 18 );
 
 }
 
@@ -318,8 +320,8 @@ HRESULT SetupMRTs(ID3D10Device* pd3dDevice) {
 	// Create depth stencil texture.
     D3D10_TEXTURE2D_DESC dstex;
 	ZeroMemory( &dstex, sizeof(dstex) );
-    dstex.Width = _width;
-    dstex.Height = _height;
+    dstex.Width = _width * TEXSCALE;
+    dstex.Height = _height * TEXSCALE;
     dstex.MipLevels = 1;
     dstex.ArraySize = NUMRTS;
     dstex.SampleDesc.Count = 1;
@@ -347,14 +349,14 @@ HRESULT SetupMRTs(ID3D10Device* pd3dDevice) {
     V_RETURN (  pd3dDevice->CreateDepthStencilView( _mrtMapDepth, &DescDS, &_mrtDSV ) );
 
     // Create all the multiple render target textures
-    dstex.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    dstex.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
     dstex.BindFlags = D3D10_BIND_RENDER_TARGET | D3D10_BIND_SHADER_RESOURCE;
     //dstex.MiscFlags = D3D10_RESOURCE_MISC_GENERATE_MIPS;
     //dstex.MipLevels = 2;
 	_mrtTex = NULL;
     V_RETURN ( pd3dDevice->CreateTexture2D( &dstex, NULL, &_mrtTex ) );
 
-	// Create the 3 render target view
+	// Create the 4 render target view
     D3D10_RENDER_TARGET_VIEW_DESC DescRT;
     DescRT.Format = dstex.Format;
     DescRT.ViewDimension = D3D10_RTV_DIMENSION_TEXTURE2DARRAY;
@@ -416,6 +418,7 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
 
     // Obtain the variables
     g_ptxDiffuseVariable = g_pEffect->GetVariableByName( "g_txDiffuse" )->AsShaderResource();
+	_mrtTextureVariable = g_pEffect->GetVariableByName( "_mrtTextures" )->AsShaderResource();
     g_pWorldVariable = g_pEffect->GetVariableByName( "World" )->AsMatrix();
     g_pViewVariable = g_pEffect->GetVariableByName( "View" )->AsMatrix();
     g_pProjectionVariable = g_pEffect->GetVariableByName( "Projection" )->AsMatrix();
@@ -470,7 +473,7 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
 	// Set the textured quad camera
 	//D3DXVECTOR3 Eye( 0.0f, 0.0f, 700.0f );
     //D3DXVECTOR3 At( 0.0f, 0.0f, 0.0f );
-	D3DXVECTOR3 Eye2( 0.0f, 0.0f, 700.0f );
+	D3DXVECTOR3 Eye2( 0.0f, 0.0f, 800.0f );
     t_Camera.SetViewParams( &Eye2, &At );
 
     return S_OK;
@@ -513,8 +516,8 @@ HRESULT CALLBACK OnD3D10ResizedSwapChain( ID3D10Device* pd3dDevice, IDXGISwapCha
 void RenderTextures( ID3D10Device* pd3dDevice) {
 	// Set a new viewport for rendering to texture(s)
 	D3D10_VIEWPORT SMVP;
-	SMVP.Height = _height;
-	SMVP.Width = _width;
+	SMVP.Height = _height * TEXSCALE;
+	SMVP.Width = _width * TEXSCALE;
 	SMVP.MinDepth = 0;
 	SMVP.MaxDepth = 1;
 	SMVP.TopLeftX = 0;
@@ -647,11 +650,9 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
     pd3dDevice->IASetInputLayout( g_pVertexLayout );
 
 	/** Render the full-screen quad **/
-	// Set the Vertex Layout
-    //pd3dDevice->IASetInputLayout( gModelObject.pVertexLayout );
 
-	// update the attached texture
-	g_ptxDiffuseVariable->SetResource(  _mrtSRV );
+	// attach all the textures
+	_mrtTextureVariable->SetResource(  _mrtSRV );
 
 	// Send in which texture to render
 	g_TexToRender->SetInt( _textureToRender );
@@ -697,7 +698,7 @@ void RenderText()
     g_pTxtHelper->Begin();
     g_pTxtHelper->SetInsertionPos( 2, 0 );
     g_pTxtHelper->SetForegroundColor( D3DXCOLOR( 1.0f, 1.0f, 0.0f, 1.0f ) );
-    g_pTxtHelper->DrawTextLine( DXUTGetFrameStats( DXUTIsVsyncEnabled() ) );
+    g_pTxtHelper->DrawTextLine( DXUTGetFrameStats( true ) );//DXUTIsVsyncEnabled() ) );
     g_pTxtHelper->DrawTextLine( DXUTGetDeviceStats() );
     g_pTxtHelper->End();
 }
@@ -766,9 +767,11 @@ void CALLBACK OnFrameMove( double fTime, float fElapsedTime, void* pUserContext 
     else
         D3DXMatrixRotationY( &g_World, DEG2RAD( 180.0f ) );
 
-    D3DXMATRIX mRot;
-    D3DXMatrixRotationX( &mRot, DEG2RAD( -90.0f ) );
-    g_World = mRot * g_World;
+	// rotate the scene
+    D3DXMATRIX mRot, yRot;
+    D3DXMatrixRotationX( &mRot, DEG2RAD( 90.0f ) );
+	D3DXMatrixRotationY( &yRot, DEG2RAD( 180.0f ) );
+    g_World = mRot * yRot * g_World;
 }
 
 
