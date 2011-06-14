@@ -286,15 +286,74 @@ float4 PSMRT( PS_MRT_INPUT input ) : SV_Target
 
 /******* Ambient Occlusion Functions***************/
 
+float4 getPosition(in float2 uv)
+{
+	return _mrtTextures.Sample( samPoint, float3(uv, 2) );
+}
+
+float4 getNormal(in float2 uv)
+{
+	float4 normals = _mrtTextures.Sample( samPoint, float3(uv, 1) );
+	normals =  (normals - 0.5) * 2.0;
+	return normals;
+}
+
+float2 getRandom(in float2 uv)
+{
+	return (-1, 1);//normalize(tex2D(g_random, g_screen_size * uv / random_size).xy * 2.0f - 1.0f);
+}
+
+float doAmbientOcclusion(in float2 tcoord,in float2 uv, in float3 p, in float3 cnorm)
+{
+	float g_scale = 0.5;
+	float g_intensity = 0.5;
+	float g_bias = 0.5;
+
+	float3 diff = getPosition(tcoord + uv) - p;
+	const float3 v = normalize(diff);
+	const float d = length(diff)*g_scale;
+	return max(0.0,dot(cnorm,v)-g_bias)*(1.0/(1.0+d))*g_intensity;
+}
+
+
 //--------------------------------------------------------------------------------------
 // Pixel Shader for AO
 //--------------------------------------------------------------------------------------
 float4 PSAO( PS_INPUT input ) : SV_Target
 {
-	// normals 
-	//float4 normals	= _mrtTextures.Sample( samPoint, float3(input.Tex, 1) );
-	//return normals;
-	return float4(0.0, 0.5, 0.0, 1.0);
+ 
+	float g_sample_rad = 0.9;
+
+	//o.color.rgb = 1.0f;
+	const float2 vec[4] = {float2(1,0),float2(-1,0),
+						   float2(0,1),float2(0,-1)};
+
+	float3 p = getPosition(input.Tex);
+	float3 n = getNormal(input.Tex);
+	//float2 rand = getRandom(input.Tex);
+	float2 rand = float2(-1, -1);
+
+	float ao = 0.0f;
+	float rad = g_sample_rad/p.z;
+
+	//**SSAO Calculation**//
+	int iterations = 4;
+	for (int j = 0; j < iterations; ++j)
+	{
+		float2 coord1 = reflect(vec[j],rand)*rad;
+		float2 coord2 = float2(coord1.x*0.707 - coord1.y*0.707, coord1.x*0.707 + coord1.y*0.707);
+  
+		ao += doAmbientOcclusion(input.Tex,coord1*0.25, p, n);
+		ao += doAmbientOcclusion(input.Tex,coord2*0.5, p, n);
+		ao += doAmbientOcclusion(input.Tex,coord1*0.75, p, n);
+		ao += doAmbientOcclusion(input.Tex,coord2, p, n);
+	} 
+	 
+	ao/=(float)iterations*4.0;
+
+	return float4(ao, ao, ao, 1.0);
+
+	//return float4(0.0, 0.5, 0.0, 1.0);
 }
 
 
