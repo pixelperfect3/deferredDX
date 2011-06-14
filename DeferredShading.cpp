@@ -74,16 +74,26 @@ ID3D10InputLayout*      _quadLayout;
 
 
 // The Multiple Render Targets
-ID3D10Texture2D*                    _mrtTex;       // Environment map
-ID3D10RenderTargetView*             _mrtRTV;	   // Render target view for the alpha map
-ID3D10ShaderResourceView*           _mrtSRV;       // Shader resource view for the cubic env map
+ID3D10Texture2D*                    _mrtTex;					// Environment map
+ID3D10RenderTargetView*             _mrtRTV;					// Render target view for the mrts
+ID3D10ShaderResourceView*           _mrtSRV;					// Shader resource view for the mrts
 ID3D10EffectShaderResourceVariable* _mrtTextureVariable = NULL; // for sending in the mrts
-ID3D10Texture2D*                    _mrtMapDepth;  // Depth stencil for the environment map
-ID3D10DepthStencilView*             _mrtDSV;       // Depth stencil view for environment map for all 6 faces
-#define	NUMRTS 4;								   // number of render targets
-#define TEXSCALE 2;								   // scale of the render targets
-short								_textureToRender = 0; // keeps track of which texture to render
-ID3D10EffectScalarVariable*			g_TexToRender = NULL; // variable to send in which texture to render
+ID3D10Texture2D*                    _mrtMapDepth;				// Depth stencil for the environment map
+ID3D10DepthStencilView*             _mrtDSV;					// Depth stencil view for environment map for all 6 faces
+#define	NUMRTS 4;												// number of render targets
+#define TEXSCALE 2;												// scale of the render targets
+short								_textureToRender = 0;		// keeps track of which texture to render
+ID3D10EffectScalarVariable*			g_TexToRender = NULL;		// variable to send in which texture to render
+
+// Ambient Occlusion variables
+bool								_ambientOcclusion = true;	// ao off or on?
+ID3D10Texture2D*                    _aoTex;						// Ambient Occlusion texture
+ID3D10RenderTargetView*             _aoRTV;						// Render target view for the ao texture
+ID3D10ShaderResourceView*           _aoSRV;						// Shader resource view for the ao texture
+ID3D10Texture2D*                    _aoMapDepth;				// Depth stencil for the ao texture
+ID3D10DepthStencilView*             _aoDSV;						// Depth stencil view for the ao texture
+ID3D10EffectShaderResourceVariable* _aoTextureVariable = NULL;	// for sending in the ao texture
+ID3D10EffectScalarVariable*			g_UseAO = NULL;			// render AO or not?
 
 // World Matrices
 D3DXMATRIX                          g_World, t_World;
@@ -98,6 +108,7 @@ int						_width, _height;
 #define IDC_TOGGLEREF           2
 #define IDC_CHANGEDEVICE        3
 #define IDC_TOGGLESPIN          4
+#define IDC_TOGGLEAO           15
 #define IDC_PUFF_SCALE          5
 #define IDC_PUFF_STATIC         6
 #define IDC_TOGGLEWARP          7
@@ -108,6 +119,7 @@ int						_width, _height;
 #define IDC_VIEWNORMALS		   10
 #define IDC_VIEWPOSITION       11
 #define IDC_VIEWDEPTH          12
+#define IDC_VIEWAO			   14
 #define IDC_VIEWCOMPOSITE      13
 
 //--------------------------------------------------------------------------------------
@@ -205,8 +217,13 @@ void InitApp()
 	// use slider for changing # of lights
     g_SampleUI.AddSlider( IDC_PUFF_SCALE, 50, iY += 24, 100, 22, 0, 2000, ( int )( g_fModelPuffiness * 100.0f ) );
 
+	// for spinning
     iY += 24;
     g_SampleUI.AddCheckBox( IDC_TOGGLESPIN, L"Toggle Spinning", 35, iY += 24, 125, 22, g_bSpinning );
+
+	// checkbox to enable/disable Ambient Occlusion
+	iY += 24;
+    g_SampleUI.AddCheckBox( IDC_TOGGLEAO, L"Toggle Ambient Occlusion", 35, iY += 24, 125, 22, _ambientOcclusion );
 
 	// textures
 	g_HUD.AddStatic( -1, L"Texture To Render:", 35, iY += 24, 100, 22 ); 
@@ -214,6 +231,7 @@ void InitApp()
 	g_HUD.AddRadioButton( IDC_VIEWNORMALS, IDC_TEXTUREGROUP, L"Normals", 35, iY+= 24, 64, 18 );   
 	g_HUD.AddRadioButton( IDC_VIEWPOSITION, IDC_TEXTUREGROUP, L"Position", 35, iY+= 24, 64, 18 );   
 	g_HUD.AddRadioButton( IDC_VIEWDEPTH, IDC_TEXTUREGROUP, L"Depth", 35, iY+= 24, 64, 18 );   
+	g_HUD.AddRadioButton( IDC_VIEWAO, IDC_TEXTUREGROUP, L"Ambient Occlusion", 35, iY+= 24, 120, 18 );   
 	g_HUD.AddRadioButton( IDC_VIEWCOMPOSITE, IDC_TEXTUREGROUP, L"Composite", 35, iY+= 24, 100, 18 );
 
 }
@@ -382,6 +400,78 @@ HRESULT SetupMRTs(ID3D10Device* pd3dDevice) {
 	return S_OK;
 }
 
+//----------------------------------------------
+// Sets up the Ambient Occlusion Texture
+//----------------------------------------------
+HRESULT SetupAO(ID3D10Device* pd3dDevice) {
+	HRESULT hr;
+
+	// Create depth stencil texture.
+    D3D10_TEXTURE2D_DESC dstex;
+	ZeroMemory( &dstex, sizeof(dstex) );
+    dstex.Width = _width * TEXSCALE;
+    dstex.Height = _height * TEXSCALE;
+    dstex.MipLevels = 1;
+    dstex.ArraySize = 1;
+    dstex.SampleDesc.Count = 1;
+    dstex.SampleDesc.Quality = 0;
+    dstex.Format = DXGI_FORMAT_D32_FLOAT;
+    dstex.Usage = D3D10_USAGE_DEFAULT;
+    dstex.BindFlags =  D3D10_BIND_DEPTH_STENCIL;
+    dstex.CPUAccessFlags = 0;
+    //dstex.MiscFlags = D3D10_RESOURCE_MISC_TEXTURECUBE;
+
+	_aoMapDepth = NULL;
+
+    V_RETURN(  pd3dDevice->CreateTexture2D( &dstex, NULL, &_aoMapDepth ));
+
+    // Create the depth stencil view for the mrts
+    D3D10_DEPTH_STENCIL_VIEW_DESC DescDS;
+	DescDS.Format = dstex.Format;
+    DescDS.ViewDimension = D3D10_DSV_DIMENSION_TEXTURE2D;
+//    DescDS.Texture2D.FirstArraySlice = 0;
+//    DescDS.Texture2D.ArraySize = 1;
+    DescDS.Texture2D.MipSlice = 0;
+
+	_aoDSV = NULL;
+
+    V_RETURN (  pd3dDevice->CreateDepthStencilView( _aoMapDepth, &DescDS, &_aoDSV ) );
+
+    // Create all the multiple render target textures
+    dstex.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
+    dstex.BindFlags = D3D10_BIND_RENDER_TARGET | D3D10_BIND_SHADER_RESOURCE;
+    //dstex.MiscFlags = D3D10_RESOURCE_MISC_GENERATE_MIPS;
+    //dstex.MipLevels = 2;
+	_aoTex = NULL;
+    V_RETURN ( pd3dDevice->CreateTexture2D( &dstex, NULL, &_aoTex ) );
+
+	// Create one render target view
+    D3D10_RENDER_TARGET_VIEW_DESC DescRT;
+    DescRT.Format = dstex.Format;
+    DescRT.ViewDimension = D3D10_RTV_DIMENSION_TEXTURE2D;
+//    DescRT.Texture2D.FirstArraySlice = 0;
+//    DescRT.Texture2D.ArraySize = 1;
+    DescRT.Texture2D.MipSlice = 0;
+    V_RETURN ( pd3dDevice->CreateRenderTargetView( _aoTex, &DescRT, &_aoRTV ) ); 
+
+	// Create the shader resource view for the cubic env map
+    D3D10_SHADER_RESOURCE_VIEW_DESC SRVDesc;
+    ZeroMemory( &SRVDesc, sizeof( SRVDesc ) );
+	SRVDesc.Format = dstex.Format;
+    SRVDesc.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2D;
+	//SRVDesc.Texture2DArray;
+//	SRVDesc.Texture2D.ArraySize = 1;
+//	SRVDesc.Texture2D.FirstArraySlice = 0;
+	SRVDesc.Texture2D.MipLevels = 1;
+    //SRVDesc.TextureCube.MipLevels = 1;
+    SRVDesc.Texture2D.MostDetailedMip = 0;
+	_aoSRV = NULL;
+    V_RETURN ( pd3dDevice->CreateShaderResourceView( _aoTex, &SRVDesc, &_aoSRV ) );
+
+	return S_OK;
+}
+
+
 //--------------------------------------------------------------------------------------
 // Create any D3D10 resources that aren't dependant on the back buffer
 //--------------------------------------------------------------------------------------
@@ -418,20 +508,27 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
 
     // Obtain the variables
     g_ptxDiffuseVariable = g_pEffect->GetVariableByName( "g_txDiffuse" )->AsShaderResource();
+
+	// the textures (MRTs and AO)
 	_mrtTextureVariable = g_pEffect->GetVariableByName( "_mrtTextures" )->AsShaderResource();
-    g_pWorldVariable = g_pEffect->GetVariableByName( "World" )->AsMatrix();
+	_aoTextureVariable = g_pEffect->GetVariableByName( "_aoTexture" )->AsShaderResource();
+
+	g_pWorldVariable = g_pEffect->GetVariableByName( "World" )->AsMatrix();
     g_pViewVariable = g_pEffect->GetVariableByName( "View" )->AsMatrix();
     g_pProjectionVariable = g_pEffect->GetVariableByName( "Projection" )->AsMatrix();
 	
 	// send in puffiness
     g_pPuffiness  = g_pEffect->GetVariableByName( "Puffiness" )->AsScalar();
-
     // Set Puffiness
     g_pPuffiness->SetFloat( g_fModelPuffiness );
 
 	// Send in which texture to render
 	g_TexToRender = g_pEffect->GetVariableByName( "TexToRender" )->AsScalar();
 	g_TexToRender->SetInt( _textureToRender );
+
+	// Send in whether to render ambient occlusion or not
+	g_UseAO = g_pEffect->GetVariableByName( "UseAO" )->AsScalar();
+	g_UseAO->SetBool( _ambientOcclusion );
 
     // Define the input layout
     const D3D10_INPUT_ELEMENT_DESC layout[] =
@@ -464,6 +561,9 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
 	// Set up the multiple render targets
 	SetupMRTs(pd3dDevice);
    
+	// Setup the Ambient Occlusion Texture
+	SetupAO(pd3dDevice);
+
 	// Create cubic depth stencil texture.
     // Initialize the camera
     D3DXVECTOR3 Eye( 0.0f, 0.0f, -800.0f );
@@ -543,6 +643,8 @@ void RenderTextures( ID3D10Device* pd3dDevice) {
 
 	// Render the objects
 
+	//_aoTextureVariable->SetResource(  _aoSRV );
+
 	// Get the technique
 	D3D10_TECHNIQUE_DESC techDesc;
 	g_pTechnique->GetDesc( &techDesc );
@@ -586,6 +688,84 @@ void RenderTextures( ID3D10Device* pd3dDevice) {
 } // End Render Textures
 
 //--------------------------------------------------------------------------------------
+// Renders the ambient occlusion texture
+//--------------------------------------------------------------------------------------
+void RenderAmbientOcclusion( ID3D10Device* pd3dDevice) {
+	// set ambient texture to something else
+	//_aoTextureVariable->SetResource(  NULL );
+
+	//ID3D10ShaderResourceView *const pSRV[1] = {NULL};
+	//pd3dDevice->PSSetShaderResources(0, 1, pSRV);
+
+
+	// Set a new viewport for rendering to texture(s)
+	D3D10_VIEWPORT SMVP;
+	SMVP.Height = _height * TEXSCALE;
+	SMVP.Width = _width * TEXSCALE;
+	SMVP.MinDepth = 0;
+	SMVP.MaxDepth = 1;
+	SMVP.TopLeftX = 0;
+	SMVP.TopLeftY = 0;
+	pd3dDevice->RSSetViewports( 1, &SMVP );
+
+    float ClearColor[4] ={ 0.0f, 0.0f, 0.0f, 1.0f };
+
+	// Clear Textures
+    pd3dDevice->ClearRenderTargetView( _aoRTV, ClearColor );
+    pd3dDevice->ClearDepthStencilView( _aoDSV, D3D10_CLEAR_DEPTH, 1.0, 0 );
+	
+	//ID3D10InputLayout* pLayout = g_pVertexLayoutCM;
+    //ID3D10EffectTechnique* pTechnique = g_pRenderCubeMapTech;
+
+	// set input layout
+	pd3dDevice->IASetInputLayout( g_pVertexLayout );
+
+	// Set all the render targets
+    ID3D10RenderTargetView* aRTViews[ 1 ] = { _aoRTV };
+	UINT numRenderTargets = sizeof( aRTViews ) / sizeof( aRTViews[0] );
+	pd3dDevice->OMSetRenderTargets( numRenderTargets, aRTViews, _aoDSV );
+
+	// attach all the textures
+	_mrtTextureVariable->SetResource(  _mrtSRV );
+
+	// Render the full-screen quad
+	
+	//
+    // Update variables that change once per frame
+    //
+    g_pProjectionVariable->SetMatrix( ( float* )t_Camera.GetProjMatrix() );
+    g_pViewVariable->SetMatrix( ( float* )t_Camera.GetViewMatrix() );
+    g_pWorldVariable->SetMatrix( ( float* )&t_World );
+
+	// set the buffers first
+	// Set vertex buffer
+    UINT stride, offset;
+	stride = sizeof(VPNS);
+    offset = 0;
+
+	pd3dDevice->IASetVertexBuffers(0, 1, &_quadVB, &stride, &offset);
+
+	// Set index buffer
+	pd3dDevice->IASetIndexBuffer(_quadIB, DXGI_FORMAT_R32_UINT, 0 );
+
+    // Set primitive topology to be a a trianglestrip
+    pd3dDevice->IASetPrimitiveTopology(D3D10_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+
+	// Apply Pass #1
+	D3D10_TECHNIQUE_DESC techDesc;
+	g_pTechnique->GetDesc( &techDesc );
+
+	// apply regular rendering
+    g_pTechnique->GetPassByIndex(3)->Apply(0);
+	// draw
+	pd3dDevice->DrawIndexed(_numIQuad, 0, 0);
+
+
+} // End Render Textures
+
+
+
+//--------------------------------------------------------------------------------------
 // Render the scene using the D3D10 device
 //--------------------------------------------------------------------------------------
 void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float fElapsedTime, void* pUserContext )
@@ -603,6 +783,9 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
 	/** Start rendering to all the textures **/
 	RenderTextures(pd3dDevice);
 		
+	/** Now render the ambient occlusion texture - use mrts as input to generate it**/	
+	RenderAmbientOcclusion(pd3dDevice);
+
 	/** Now render the full-screen quad with texture **/
 	UINT stride = sizeof(VPNS);
 	UINT offset = 0;
@@ -652,7 +835,11 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
 	/** Render the full-screen quad **/
 
 	// attach all the textures
+	// Multiple Render Targets
 	_mrtTextureVariable->SetResource(  _mrtSRV );
+	
+	// Ambient Occlusion Texture
+	_aoTextureVariable->SetResource(  _aoSRV );
 
 	// Send in which texture to render
 	g_TexToRender->SetInt( _textureToRender );
@@ -687,6 +874,18 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
     g_SampleUI.OnRender( fElapsedTime );
 
     RenderText();
+
+
+	// reset texture
+	_aoTextureVariable->SetResource(  _mrtSRV );
+
+	//
+	ID3D10ShaderResourceView *pSRV[2];
+	memset(pSRV, 0, sizeof(pSRV));
+	pd3dDevice->PSSetShaderResources(0, 2, pSRV);
+
+	/*ID3D10ShaderResourceView *const pSRV[1] = {NULL};
+	pd3dDevice->PSSetShaderResources(0, 1, pSRV);*/
 }
 
 
@@ -842,6 +1041,8 @@ void CALLBACK OnGUIEvent( UINT nEvent, int nControlID, CDXUTControl* pControl, v
 			_textureToRender = 2; break;
 		case IDC_VIEWDEPTH:
 			_textureToRender = 3; break;
+		case IDC_VIEWAO:
+			_textureToRender = 5; break;
 		case IDC_VIEWCOMPOSITE:
 			_textureToRender = 4; break;
         case IDC_TOGGLEFULLSCREEN:
@@ -857,7 +1058,12 @@ void CALLBACK OnGUIEvent( UINT nEvent, int nControlID, CDXUTControl* pControl, v
             g_bSpinning = g_SampleUI.GetCheckBox( IDC_TOGGLESPIN )->GetChecked();
             break;
         }
-
+		case IDC_TOGGLEAO: // Enable/disable Ambient Occlusion
+        {
+            _ambientOcclusion = g_SampleUI.GetCheckBox( IDC_TOGGLEAO )->GetChecked();
+			g_UseAO->SetBool (_ambientOcclusion );
+            break;
+        }
         case IDC_PUFF_SCALE:
         {
             WCHAR sz[100];

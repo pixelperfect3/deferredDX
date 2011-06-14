@@ -3,14 +3,21 @@
 
 // Author: @pixelperfect3 (GitHub) - Shayan Javed
 // This is the shader file for DeferredRendering
+
+// Includes passes for:
+// -rendering to multiple targets
+// -rendering the objects (mesh)
+// -rendering the full-screen quad
+// -rendering the ambient occlusion textures
 //--------------------------------------------------------------------------------------
 
 
 //--------------------------------------------------------------------------------------
 // Constant Buffer Variables
 //--------------------------------------------------------------------------------------
-Texture2DArray _mrtTextures; 
-Texture2D g_txDiffuse; // the diffuse variable for the mesh
+Texture2DArray _mrtTextures;	// the multiple render textures
+Texture2D _aoTexture;			// the ao texture
+Texture2D g_txDiffuse;			// the diffuse variable for the mesh
 
 SamplerState samLinear
 {
@@ -49,7 +56,8 @@ cbuffer cbChangesEveryFrame
 cbuffer cbUserChanges
 {
     float Puffiness;
-	int   TexToRender;
+	int   TexToRender;	// which texture to render?
+	bool  UseAO;		// Use Ambient Occlusion or not?
 };
 
 struct VS_INPUT
@@ -145,6 +153,11 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	float4 depth	= _mrtTextures.Sample( samPoint, float3(input.Tex, 3) );
 	if (TexToRender == 3)
 		return depth;
+
+	// ambient occlusion
+	float4 ao		= _aoTexture.Sample( samPoint, input.Tex );
+	if (TexToRender == 5)
+		return ao;
 
 	// else calculate the light value
 
@@ -261,13 +274,28 @@ float4 PSMRT( PS_MRT_INPUT input ) : SV_Target
 		return input.Pos;//return float4(1.0, 0.0, 0.0, 1.0);
 	else {						 // depth
 		float normalizedDistance = input.Pos.z / input.Pos.w;
+		//normalizedDistance = 1.0 / normalizedDistance;
 		// scale it from 0-1
-		normalizedDistance = (normalizedDistance + 1.0) / 2.0;
-		return float4(normalizedDistance, normalizedDistance, normalizedDistance, 1.0);
+		//normalizedDistance = (normalizedDistance + 1.0) / 2.0;
+		normalizedDistance = normalizedDistance * 100;  // scale it
+		normalizedDistance = 1.0f - normalizedDistance; // dark to white, instead of the other way around (does it really matter?)
+		return float4(normalizedDistance, normalizedDistance, normalizedDistance, normalizedDistance);
 	}
     //return input.Pos;
 }
 
+/******* Ambient Occlusion Functions***************/
+
+//--------------------------------------------------------------------------------------
+// Pixel Shader for AO
+//--------------------------------------------------------------------------------------
+float4 PSAO( PS_INPUT input ) : SV_Target
+{
+	// normals 
+	//float4 normals	= _mrtTextures.Sample( samPoint, float3(input.Tex, 1) );
+	//return normals;
+	return float4(0.0, 0.5, 0.0, 1.0);
+}
 
 
 //--------------------------------------------------------------------------------------
@@ -302,6 +330,17 @@ technique10 Render
 		SetVertexShader( CompileShader( vs_4_0, VSMRT() ) );
         SetGeometryShader( CompileShader( gs_4_0, GSMRT() ) );
         SetPixelShader( CompileShader( ps_4_0, PSMRT() ) );        
+
+        SetDepthStencilState( EnableDepth, 0 );
+        SetBlendState( NoBlending, float4( 0.0f, 0.0f, 0.0f, 0.0f ), 0xFFFFFFFF );
+	}
+
+	// Used to render the ambient occlusion texture
+	pass P3
+	{
+		SetVertexShader( CompileShader( vs_4_0, VS() ) );
+        SetGeometryShader( NULL );
+        SetPixelShader( CompileShader( ps_4_0, PSAO() ) );        
 
         SetDepthStencilState( EnableDepth, 0 );
         SetBlendState( NoBlending, float4( 0.0f, 0.0f, 0.0f, 0.0f ), 0xFFFFFFFF );
