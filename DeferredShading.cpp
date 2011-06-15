@@ -33,7 +33,7 @@ using namespace std;
 //--------------------------------------------------------------------------------------
 // Global Variables
 //--------------------------------------------------------------------------------------
-CModelViewerCamera                  g_Camera, t_Camera;     // A model viewing camera and the second one
+CModelViewerCamera                  g_Camera, t_Camera, ao_Camera;     // A model viewing camera and the second one
 															// is used for viewing the final textured quad
 
 
@@ -96,7 +96,7 @@ ID3D10EffectShaderResourceVariable* _aoTextureVariable = NULL;	// for sending in
 ID3D10EffectScalarVariable*			g_UseAO = NULL;			// render AO or not?
 
 // World Matrices
-D3DXMATRIX                          g_World, t_World;
+D3DXMATRIX                          g_World, t_World, ao_World;
 
 // window width and height
 int						_width, _height;
@@ -554,6 +554,7 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
     // Initialize the world matrices
     D3DXMatrixIdentity( &g_World );
 	D3DXMatrixIdentity( &t_World );
+	D3DXMatrixIdentity( &ao_World );
 
 	// Initialize the quad mesh (for render to texture)
 	InitializeQuad();
@@ -576,6 +577,11 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
 	D3DXVECTOR3 Eye2( 0.0f, 0.0f, 800.0f );
     t_Camera.SetViewParams( &Eye2, &At );
 
+	// camera for generating ambient occlusion
+	D3DXVECTOR3 Eye3( 0.0f, 0.0f, 927); // 927 seems to be the exact number
+	//ao_Camera.
+	ao_Camera.SetViewParams( &Eye3, &At );
+
     return S_OK;
 }
 
@@ -595,7 +601,8 @@ HRESULT CALLBACK OnD3D10ResizedSwapChain( ID3D10Device* pd3dDevice, IDXGISwapCha
     float fAspectRatio = static_cast<float>( pBufferSurfaceDesc->Width ) /
         static_cast<float>( pBufferSurfaceDesc->Height );
     g_Camera.SetProjParams( D3DX_PI / 4, fAspectRatio, 0.1f, 5000.0f );
-    g_Camera.SetWindow( pBufferSurfaceDesc->Width, pBufferSurfaceDesc->Height );
+    ao_Camera.SetProjParams( D3DX_PI / 4, fAspectRatio, 0.1f, 5000.0f );
+	g_Camera.SetWindow( pBufferSurfaceDesc->Width, pBufferSurfaceDesc->Height );
     g_Camera.SetButtonMasks( MOUSE_MIDDLE_BUTTON, MOUSE_WHEEL, MOUSE_LEFT_BUTTON );
 
     g_HUD.SetLocation( pBufferSurfaceDesc->Width - 170, 0 );
@@ -714,9 +721,6 @@ void RenderAmbientOcclusion( ID3D10Device* pd3dDevice) {
     pd3dDevice->ClearRenderTargetView( _aoRTV, ClearColor );
     pd3dDevice->ClearDepthStencilView( _aoDSV, D3D10_CLEAR_DEPTH, 1.0, 0 );
 	
-	//ID3D10InputLayout* pLayout = g_pVertexLayoutCM;
-    //ID3D10EffectTechnique* pTechnique = g_pRenderCubeMapTech;
-
 	// set input layout
 	pd3dDevice->IASetInputLayout( g_pVertexLayout );
 
@@ -733,9 +737,10 @@ void RenderAmbientOcclusion( ID3D10Device* pd3dDevice) {
 	//
     // Update variables that change once per frame
     //
-    g_pProjectionVariable->SetMatrix( ( float* )t_Camera.GetProjMatrix() );
-    g_pViewVariable->SetMatrix( ( float* )t_Camera.GetViewMatrix() );
-    g_pWorldVariable->SetMatrix( ( float* )&t_World );
+
+    g_pProjectionVariable->SetMatrix( ( float* )ao_Camera.GetProjMatrix() );
+    g_pViewVariable->SetMatrix( ( float* )ao_Camera.GetViewMatrix() );
+    g_pWorldVariable->SetMatrix( ( float* )&ao_World );
 
 	// set the buffers first
 	// Set vertex buffer
@@ -783,8 +788,14 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
 	/** Start rendering to all the textures **/
 	RenderTextures(pd3dDevice);
 		
+	// Restore old view port
+	//pd3dDevice->RSSetViewports( 1, &OldVP );
+
+
 	/** Now render the ambient occlusion texture - use mrts as input to generate it**/	
 	RenderAmbientOcclusion(pd3dDevice);
+
+
 
 	/** Now render the full-screen quad with texture **/
 	UINT stride = sizeof(VPNS);

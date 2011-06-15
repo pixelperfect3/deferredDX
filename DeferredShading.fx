@@ -38,7 +38,7 @@ SamplerState samPoint
 // lighting variables
 cbuffer cbConstant 
 {
-	float3 vLightPos	= float3(1.0, -3.0, -1.0);
+	float3 vLightPos	= float3(1.0, 0.0, -3.0);
     float3 vLightDir	= float3(-0.577,0.577,-0.577);
 	float4 vLightColor	= float4(0.4,0.2,0.8, 1.0);
 	float4 matDiffuse	= float4(0.0, 0.8, 0.0, 1.0);//(0.5, 0.5, 0.0, 1.0);
@@ -179,6 +179,10 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 
 	//float4 outputColor = diffuse * normals * position * depth;
 	float4 outputColor = dTerm + specular;
+	if (UseAO == true) {
+		ao += 0.2; // slightly softer
+		outputColor = outputColor * ao;
+	}
 
 	return outputColor;
 }
@@ -305,9 +309,9 @@ float2 getRandom(in float2 uv)
 
 float doAmbientOcclusion(in float2 tcoord,in float2 uv, in float3 p, in float3 cnorm)
 {
-	float g_scale = 0.5;
+	float g_scale = 0.1;
 	float g_intensity = 0.5;
-	float g_bias = 0.5;
+	float g_bias = 0.2;
 
 	float3 diff = getPosition(tcoord + uv) - p;
 	const float3 v = normalize(diff);
@@ -323,14 +327,14 @@ float4 PSAO( PS_INPUT input ) : SV_Target
 {
  
 	float g_sample_rad = 0.9;
-
+	float2 uv = float2(1.0 - input.Tex.x, 1.0 - input.Tex.y); // align properly
 	//o.color.rgb = 1.0f;
 	const float2 vec[4] = {float2(1,0),float2(-1,0),
 						   float2(0,1),float2(0,-1)};
 
-	float3 p = getPosition(input.Tex);
-	float3 n = getNormal(input.Tex);
-	//float2 rand = getRandom(input.Tex);
+	float3 p = getPosition(uv).xyz;
+	float3 n = getNormal(uv).xyz;
+	//float2 rand = getRandom(uv);
 	float2 rand = float2(-1, -1);
 
 	float ao = 0.0f;
@@ -343,14 +347,15 @@ float4 PSAO( PS_INPUT input ) : SV_Target
 		float2 coord1 = reflect(vec[j],rand)*rad;
 		float2 coord2 = float2(coord1.x*0.707 - coord1.y*0.707, coord1.x*0.707 + coord1.y*0.707);
   
-		ao += doAmbientOcclusion(input.Tex,coord1*0.25, p, n);
-		ao += doAmbientOcclusion(input.Tex,coord2*0.5, p, n);
-		ao += doAmbientOcclusion(input.Tex,coord1*0.75, p, n);
-		ao += doAmbientOcclusion(input.Tex,coord2, p, n);
+		ao += doAmbientOcclusion(uv,coord1*0.25, p, n);
+		ao += doAmbientOcclusion(uv,coord2*0.5, p, n);
+		ao += doAmbientOcclusion(uv,coord1*0.75, p, n);
+		ao += doAmbientOcclusion(uv,coord2, p, n);
 	} 
 	 
 	ao/=(float)iterations*4.0;
 
+	//return float4(p, 1.0);
 	return float4(ao, ao, ao, 1.0);
 
 	//return float4(0.0, 0.5, 0.0, 1.0);
