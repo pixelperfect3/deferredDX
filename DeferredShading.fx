@@ -18,6 +18,7 @@
 Texture2DArray _mrtTextures;	// the multiple render textures
 Texture2D _aoTexture;			// the ao texture
 Texture2D g_txDiffuse;			// the diffuse variable for the mesh
+Texture2D _vectorTexture;		// the random vectors
 
 SamplerState samLinear
 {
@@ -92,7 +93,7 @@ BlendState NoBlending
 
 
 //--------------------------------------------------------------------------------------
-// Vertex Shader
+// Basic Vertex Shader
 //--------------------------------------------------------------------------------------
 PS_INPUT VS( VS_INPUT input )
 {
@@ -113,13 +114,13 @@ PS_INPUT VS( VS_INPUT input )
 }
 
 //--------------------------------------------------------------------------------------
-// Pixel Shader
+// Pixel Shader for rendering the model(s)
 //--------------------------------------------------------------------------------------
 float4 PS( PS_INPUT input) : SV_Target
 {
     // Calculate lighting assuming light color is <1,1,1,1>
     float fLighting = saturate( dot( input.Norm, vLightDir ) );
-    float4 outputColor = g_txDiffuse.Sample( samLinear, float3(input.Tex, 1) ) * fLighting;
+    float4 outputColor = g_txDiffuse.Sample( samLinear, input.Tex);// ) * fLighting;
     outputColor.a = 1;
     return outputColor;
 }
@@ -155,9 +156,12 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 		return depth;
 
 	// ambient occlusion
-	float4 ao		= _aoTexture.Sample( samPoint, input.Tex );
-	if (TexToRender == 5)
-		return ao;
+	float4 ao;
+	if (UseAO == true) {
+		ao		= _aoTexture.Sample( samPoint, input.Tex );
+		if (TexToRender == 5)
+			return ao;
+	}
 
 	// else calculate the light value
 
@@ -171,16 +175,19 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	float3 L        = normalize(lightDir);
 	float3 reflectV = reflect(-L, normals.xyz);
 
+	// discard
+	if (position.x == 0)
+		return float4( 0.0f, 0.125f, 0.3f, 1.0f );
+
 	// diffuse
 	float4 dTerm = diffuse * max(dot(N, L), 0.0);
 
 	// specular
 	float4 specular = matSpecular * pow(max(dot(reflectV, E), 0.0), matShininess);
 
-	//float4 outputColor = diffuse * normals * position * depth;
-	float4 outputColor = dTerm + specular;
+	float4 outputColor = dTerm;// + specular;
 	if (UseAO == true) {
-		ao += 0.2; // slightly softer
+		ao += 0.4; // slightly softer
 		outputColor = outputColor * ao;
 	}
 
@@ -289,6 +296,9 @@ float4 PSMRT( PS_MRT_INPUT input ) : SV_Target
 }
 
 /******* Ambient Occlusion Functions***************/
+// Taken from:
+// http://archive.gamedev.net/reference/programming/features/simpleSSAO/
+
 
 float4 getPosition(in float2 uv)
 {
@@ -304,7 +314,9 @@ float4 getNormal(in float2 uv)
 
 float2 getRandom(in float2 uv)
 {
-	return (-1, 1);//normalize(tex2D(g_random, g_screen_size * uv / random_size).xy * 2.0f - 1.0f);
+	//float2 rand = _vectorTexture.Sample( samLinear, uv ).xy;
+	//return rand;
+	return normalize(_vectorTexture.Sample( samPoint, 300 * uv / 64).xy * 2.0f - 1.0f);
 }
 
 float doAmbientOcclusion(in float2 tcoord,in float2 uv, in float3 p, in float3 cnorm)
@@ -319,14 +331,13 @@ float doAmbientOcclusion(in float2 tcoord,in float2 uv, in float3 p, in float3 c
 	return max(0.0,dot(cnorm,v)-g_bias)*(1.0/(1.0+d))*g_intensity;
 }
 
-
 //--------------------------------------------------------------------------------------
 // Pixel Shader for AO
 //--------------------------------------------------------------------------------------
 float4 PSAO( PS_INPUT input ) : SV_Target
 {
  
-	float g_sample_rad = 0.9;
+	float g_sample_rad = 0.5;
 	float2 uv = float2(1.0 - input.Tex.x, 1.0 - input.Tex.y); // align properly
 	//o.color.rgb = 1.0f;
 	const float2 vec[4] = {float2(1,0),float2(-1,0),
@@ -334,8 +345,8 @@ float4 PSAO( PS_INPUT input ) : SV_Target
 
 	float3 p = getPosition(uv).xyz;
 	float3 n = getNormal(uv).xyz;
-	//float2 rand = getRandom(uv);
-	float2 rand = float2(-1, -1);
+	float2 rand = getRandom(uv);
+	//float2 rand = float2(-1, -1);
 
 	float ao = 0.0f;
 	float rad = g_sample_rad/p.z;
@@ -353,10 +364,13 @@ float4 PSAO( PS_INPUT input ) : SV_Target
 		ao += doAmbientOcclusion(uv,coord2, p, n);
 	} 
 	 
-	ao/=(float)iterations*4.0;
+	ao/=(float)iterations;//*4.0;
 
 	//return float4(p, 1.0);
-	return float4(ao, ao, ao, 1.0);
+	if (p.x == 0)
+		return float4( 0.0f, 0.125f, 0.3f, 1.0f );
+	else
+		return float4(ao, ao, ao, 1.0);
 
 	//return float4(0.0, 0.5, 0.0, 1.0);
 }

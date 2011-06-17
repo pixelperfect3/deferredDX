@@ -94,6 +94,11 @@ ID3D10Texture2D*                    _aoMapDepth;				// Depth stencil for the ao 
 ID3D10DepthStencilView*             _aoDSV;						// Depth stencil view for the ao texture
 ID3D10EffectShaderResourceVariable* _aoTextureVariable = NULL;	// for sending in the ao texture
 ID3D10EffectScalarVariable*			g_UseAO = NULL;			// render AO or not?
+// The random vector texture
+ID3D10ShaderResourceView*			_vectorSRV;
+ID3D10EffectShaderResourceVariable* _vectorVariable;
+
+
 
 // World Matrices
 D3DXMATRIX                          g_World, t_World, ao_World;
@@ -509,9 +514,10 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
     // Obtain the variables
     g_ptxDiffuseVariable = g_pEffect->GetVariableByName( "g_txDiffuse" )->AsShaderResource();
 
-	// the textures (MRTs and AO)
+	// the textures (MRTs, AO and Random Vectors)
 	_mrtTextureVariable = g_pEffect->GetVariableByName( "_mrtTextures" )->AsShaderResource();
-	_aoTextureVariable = g_pEffect->GetVariableByName( "_aoTexture" )->AsShaderResource();
+	_aoTextureVariable	= g_pEffect->GetVariableByName( "_aoTexture" )->AsShaderResource();
+	_vectorVariable		= g_pEffect->GetVariableByName( "_vectorTexture" )->AsShaderResource();
 
 	g_pWorldVariable = g_pEffect->GetVariableByName( "World" )->AsMatrix();
     g_pViewVariable = g_pEffect->GetVariableByName( "View" )->AsMatrix();
@@ -565,6 +571,9 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
 	// Setup the Ambient Occlusion Texture
 	SetupAO(pd3dDevice);
 
+	// Create the Random Vector texture
+	V_RETURN( D3DX10CreateShaderResourceViewFromFile( pd3dDevice, L"vectors.png", NULL, NULL, &_vectorSRV, NULL ) );
+	
 	// Create cubic depth stencil texture.
     // Initialize the camera
     D3DXVECTOR3 Eye( 0.0f, 0.0f, -800.0f );
@@ -631,7 +640,7 @@ void RenderTextures( ID3D10Device* pd3dDevice) {
 	SMVP.TopLeftY = 0;
 	pd3dDevice->RSSetViewports( 1, &SMVP );
 
-    float ClearColor[4] ={ 0.0f, 0.0f, 0.0f, 1.0f };
+    float ClearColor[4] = { 0.0f, 0.125f, 0.3f, 1.0f };//{ 0.0f, 0.0f, 0.0f, 1.0f };
 
 	// Clear Textures
     pd3dDevice->ClearRenderTargetView( _mrtRTV, ClearColor );
@@ -715,7 +724,7 @@ void RenderAmbientOcclusion( ID3D10Device* pd3dDevice) {
 	SMVP.TopLeftY = 0;
 	pd3dDevice->RSSetViewports( 1, &SMVP );
 
-    float ClearColor[4] ={ 0.0f, 0.0f, 0.0f, 1.0f };
+    float ClearColor[4] ={ 0.0f, 0.125f, 0.3f, 1.0f }; //{ 0.0f, 0.0f, 0.0f, 1.0f };
 
 	// Clear Textures
     pd3dDevice->ClearRenderTargetView( _aoRTV, ClearColor );
@@ -775,6 +784,9 @@ void RenderAmbientOcclusion( ID3D10Device* pd3dDevice) {
 //--------------------------------------------------------------------------------------
 void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float fElapsedTime, void* pUserContext )
 {
+	// send random vectors
+	_vectorVariable->SetResource( _vectorSRV );
+
 	// Save the old RT and DS buffer views
 	ID3D10RenderTargetView* apOldRTVs[1] = { NULL };
 	ID3D10DepthStencilView* pOldDS = NULL;
