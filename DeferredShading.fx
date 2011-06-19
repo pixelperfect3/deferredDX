@@ -39,12 +39,12 @@ SamplerState samPoint
 // lighting variables
 cbuffer cbConstant 
 {
-	float3 vLightPos	= float3(1.0, 0.0, -3.0);
+	float3 vLightPos	= float3(0.0, -3.0, 0.0);
     float3 vLightDir	= float3(-0.577,0.577,-0.577);
 	float4 vLightColor	= float4(0.4,0.2,0.8, 1.0);
 	float4 matDiffuse	= float4(0.0, 0.8, 0.0, 1.0);//(0.5, 0.5, 0.0, 1.0);
 	float4 matSpecular	= float4(0.1, 0.1, 0.1, 0.1);
-	float  matShininess	= 4.0;
+	float  matShininess	= 10.0;
 };
 
 cbuffer cbChangesEveryFrame
@@ -142,14 +142,18 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 
 	// normals 
 	float4 normals	= _mrtTextures.Sample( samPoint, float3(input.Tex, 1) );
+	normals =  (normals - 0.5) * 2.0;
 	if (TexToRender == 1)
 		return normals;
 
 	// position
 	float4 position = _mrtTextures.Sample( samPoint, float3(input.Tex, 2) );
-	if (TexToRender == 2)
+	//position = mul(position, View);
+	//position = mul(position, Projection);
+	if (TexToRender == 2) {
 		return position;
-
+	}
+	
 	// depth
 	float4 depth	= _mrtTextures.Sample( samPoint, float3(input.Tex, 3) );
 	if (TexToRender == 3)
@@ -166,7 +170,7 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	// else calculate the light value
 
 	// (convert from texture space [0,1] to world space [-1, +1])
-	normals =  (normals - 0.5) * 2.0;
+	//normals =  (normals - 0.5) * 2.0;
 
 	float3 lightDir = vLightPos - position.xyz;
 	float3 eyeVec   = -position.xyz;
@@ -176,7 +180,7 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	float3 reflectV = reflect(-L, normals.xyz);
 
 	// discard
-	if (position.x == 0)
+	if (depth.x == 0.0)
 		return float4( 0.0f, 0.125f, 0.3f, 1.0f );
 
 	// diffuse
@@ -187,7 +191,7 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 
 	float4 outputColor = dTerm;// + specular;
 	if (UseAO == true) {
-		ao += 0.4; // slightly softer
+		//ao += 0.4; // slightly softer
 		outputColor = outputColor * ao;
 	}
 
@@ -199,7 +203,8 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 // Geometry Shader input - vertex shader output
 struct GS_IN
 {
-	float4 Pos		: POSITION;    // World position
+	float4 Pos		: POSITION;    // WorldViewProj position
+	float4 PosWV	: TEXCOORD1;    // World View Position
 	float3 Norm     : NORMAL;      //normal
     float2 Tex		: TEXCOORD0;   // Texture coord
 };
@@ -207,18 +212,11 @@ struct GS_IN
 // Pixel Shader in - Geometry Shader out
 struct PS_MRT_INPUT
 {
-    float4 Pos : SV_POSITION; 
+    float4 Pos  : SV_POSITION; 
+	float4 PosWV: TEXCOORD1;    // World View Position
 	float3 Norm: NORMAL;      //normal
-    float2 Tex : TEXCOORD1;
+    float2 Tex : TEXCOORD0;
 	uint RTIndex : SV_RenderTargetArrayIndex; // which render target to write to (0-2)
-};
-
-// pixel shader output
-struct PSOut
-{
-	float4 color1 : SV_Target0;
-	float4 color2 : SV_Target1;
-	float4 color3 : SV_Target2;
 };
 
 //--------------------------------------------------------------------------------------
@@ -230,12 +228,12 @@ GS_IN VSMRT( VS_INPUT input )
     
     input.Pos += input.Norm*Puffiness;
     
-    output.Pos = mul( float4(input.Pos,1), World );
-    output.Pos = mul( output.Pos, View );
-    output.Pos = mul( output.Pos, Projection );
+    output.PosWV = mul( float4(input.Pos,1), World );
+    output.PosWV = mul( output.PosWV, View );
+    output.Pos = mul( output.PosWV, Projection );
     output.Norm = mul( input.Norm, World );
 	output.Norm = mul( output.Norm, View );
-    output.Norm = mul( output.Norm, Projection );
+    //output.Norm = mul( output.Norm, Projection );
     output.Tex = input.Tex;
     
     return output;
@@ -259,7 +257,8 @@ void GSMRT( triangle GS_IN input[3], inout TriangleStream<PS_MRT_INPUT> CubeMapS
         output.RTIndex = f;
         for( int v = 0; v < 3; v++ )
         {
-            output.Pos =  input[v].Pos;		// position
+            output.Pos =  input[v].Pos;	// position
+			output.PosWV =  input[v].PosWV;	// position
 			output.Norm = input[v].Norm;	// normal
 			
             output.Tex = input[v].Tex;
@@ -272,8 +271,10 @@ void GSMRT( triangle GS_IN input[3], inout TriangleStream<PS_MRT_INPUT> CubeMapS
 
 float4 PSMRT( PS_MRT_INPUT input ) : SV_Target
 {
-	if (input.RTIndex == 0)		 // diffuse
-		return g_txDiffuse.Sample( samLinear, float3(input.Tex, 0) );//return float4(1.0, 0.0, 0.0, 1.0);
+	if (input.RTIndex == 0)	{	 // diffuse
+		return g_txDiffuse.Sample( samLinear, input.Tex  );
+		//return float4(0.0, 0.5, 0.5, 1.0);
+	}
 	else if (input.RTIndex == 1) { // normal
 		// convert normal to texture space [-1;+1] -> [0;1]
 		float4 normal;
@@ -282,7 +283,7 @@ float4 PSMRT( PS_MRT_INPUT input ) : SV_Target
 		return normal;
 	}
 	else if (input.RTIndex == 2) // position
-		return input.Pos;//return float4(1.0, 0.0, 0.0, 1.0);
+		return float4(input.PosWV.xyz, 1.0);//return float4(1.0, 0.0, 0.0, 1.0);
 	else {						 // depth
 		float normalizedDistance = input.Pos.z / input.Pos.w;
 		//normalizedDistance = 1.0 / normalizedDistance;
@@ -314,63 +315,69 @@ float4 getNormal(in float2 uv)
 
 float2 getRandom(in float2 uv)
 {
-	//float2 rand = _vectorTexture.Sample( samLinear, uv ).xy;
+	//return normalize(_vectorTexture.Sample( samPoint, uv ).xy) * 2.0f - 1.0f;
 	//return rand;
-	return normalize(_vectorTexture.Sample( samPoint, 300 * uv / 64).xy * 2.0f - 1.0f);
+	return normalize(_vectorTexture.Sample( samPoint, (float2(341, 256) * uv )/ 64.0).xy) * 2.0f - 1.0f;
 }
 
 float doAmbientOcclusion(in float2 tcoord,in float2 uv, in float3 p, in float3 cnorm)
 {
-	float g_scale = 0.1;
-	float g_intensity = 0.5;
-	float g_bias = 0.2;
+	float g_scale = 0.9;
+	float g_intensity = 1.0;
+	float g_bias = 0.05;
 
 	float3 diff = getPosition(tcoord + uv) - p;
-	const float3 v = normalize(diff);
-	const float d = length(diff)*g_scale;
+	float3 v = normalize(diff);
+	float d = length(diff)*g_scale;
 	return max(0.0,dot(cnorm,v)-g_bias)*(1.0/(1.0+d))*g_intensity;
 }
 
 //--------------------------------------------------------------------------------------
 // Pixel Shader for AO
 //--------------------------------------------------------------------------------------
+
+// SSAO using position + normals texture
+//
 float4 PSAO( PS_INPUT input ) : SV_Target
 {
  
-	float g_sample_rad = 0.5;
+	float g_sample_rad = 0.9;
 	float2 uv = float2(1.0 - input.Tex.x, 1.0 - input.Tex.y); // align properly
 	//o.color.rgb = 1.0f;
 	const float2 vec[4] = {float2(1,0),float2(-1,0),
 						   float2(0,1),float2(0,-1)};
 
 	float3 p = getPosition(uv).xyz;
-	float3 n = getNormal(uv).xyz;
-	float2 rand = getRandom(uv);
-	//float2 rand = float2(-1, -1);
-
-	float ao = 0.0f;
-	float rad = g_sample_rad/p.z;
-
-	//**SSAO Calculation**//
-	int iterations = 4;
-	for (int j = 0; j < iterations; ++j)
-	{
-		float2 coord1 = reflect(vec[j],rand)*rad;
-		float2 coord2 = float2(coord1.x*0.707 - coord1.y*0.707, coord1.x*0.707 + coord1.y*0.707);
-  
-		ao += doAmbientOcclusion(uv,coord1*0.25, p, n);
-		ao += doAmbientOcclusion(uv,coord2*0.5, p, n);
-		ao += doAmbientOcclusion(uv,coord1*0.75, p, n);
-		ao += doAmbientOcclusion(uv,coord2, p, n);
-	} 
-	 
-	ao/=(float)iterations;//*4.0;
-
-	//return float4(p, 1.0);
-	if (p.x == 0)
+	//p = mul(Projection, p);
+	if (p.z == 0.3) {
 		return float4( 0.0f, 0.125f, 0.3f, 1.0f );
-	else
+	}
+	else {
+		float3 n = getNormal(uv).xyz;
+		float2 rand = getRandom(uv);
+		//float2 rand = float2(-1, -1);
+
+		float ao = 0.0f;
+		float rad = g_sample_rad/p.z;
+
+		//**SSAO Calculation**//
+		#define ITERATIONS 4
+		[unroll]
+		for (int j = 0; j < ITERATIONS; ++j)
+		{
+			float2 coord1 = reflect(vec[j],rand)*rad;
+			float2 coord2 = float2(coord1.x*0.707 - coord1.y*0.707, coord1.x*0.707 + coord1.y*0.707);
+  
+			ao += doAmbientOcclusion(uv,coord1*0.25, p, n);
+			ao += doAmbientOcclusion(uv,coord2*0.5, p, n);
+			ao += doAmbientOcclusion(uv,coord1*0.75, p, n);
+			ao += doAmbientOcclusion(uv,coord2, p, n);
+		} 
+	 
+		ao/= ((float)ITERATIONS*4.0);
+
 		return float4(ao, ao, ao, 1.0);
+	}
 
 	//return float4(0.0, 0.5, 0.0, 1.0);
 }

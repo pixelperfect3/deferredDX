@@ -555,7 +555,7 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
     pd3dDevice->IASetInputLayout( g_pVertexLayout );
 
     // Load the mesh
-    V_RETURN( g_Mesh.Create( pd3dDevice, L"Tiny\\tiny.sdkmesh", true ) );
+    V_RETURN( g_Mesh.Create( pd3dDevice, L"Tiny\\Tiny.sdkmesh", true ) );
 
     // Initialize the world matrices
     D3DXMatrixIdentity( &g_World );
@@ -805,6 +805,7 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
 
 
 	/** Now render the ambient occlusion texture - use mrts as input to generate it**/	
+	if (_ambientOcclusion)
 	RenderAmbientOcclusion(pd3dDevice);
 
 
