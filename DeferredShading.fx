@@ -17,7 +17,7 @@
 //--------------------------------------------------------------------------------------
 Texture2DArray _mrtTextures;	// the multiple render textures
 Texture2D _aoTexture;			// the ao texture
-Texture2D g_txDiffuse;			// the diffuse variable for the mesh
+Texture2D g_txDiffuse;			// the diffuse texture for the mesh
 Texture2D _vectorTexture;		// the random vectors
 
 SamplerState samLinear
@@ -39,7 +39,7 @@ SamplerState samPoint
 // lighting variables
 cbuffer cbConstant 
 {
-	float3 vLightPos	= float3(0.0, -3.0, 0.0);
+	float3 vLightPos	= float3(0.0, -3.0, -4.0);
     float3 vLightDir	= float3(-0.577,0.577,-0.577);
 	float4 vLightColor	= float4(0.4,0.2,0.8, 1.0);
 	float4 matDiffuse	= float4(0.0, 0.8, 0.0, 1.0);//(0.5, 0.5, 0.0, 1.0);
@@ -47,13 +47,16 @@ cbuffer cbConstant
 	float  matShininess	= 10.0;
 };
 
+// The matrices
 cbuffer cbChangesEveryFrame
 {
     matrix World;
     matrix View;
     matrix Projection;
+	matrix ProjectionInverse;
 };
 
+// Variables Changed by the user
 cbuffer cbUserChanges
 {
     float Puffiness;
@@ -146,18 +149,27 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	if (TexToRender == 1)
 		return normals;
 
+	// depth
+	float4 depth	= _mrtTextures.Sample( samPoint, float3(input.Tex, 3) );
+	// discard
+	if (depth.x == 0.0)
+		return float4( 0.0f, 0.125f, 0.3f, 1.0f );
+	if (TexToRender == 3)
+		return depth;
+
 	// position
-	float4 position = _mrtTextures.Sample( samPoint, float3(input.Tex, 2) );
+	//float4 position = _mrtTextures.Sample( samPoint, float3(input.Tex, 2) );
 	//position = mul(position, View);
 	//position = mul(position, Projection);
+	float4 H = float4(input.Tex.x * 2 - 1, (1 - input.Tex.y) * 2 - 1,  
+	depth.x, 1);
+	float4 D = mul(H, ProjectionInverse);
+	float4 position = D / D.w;
 	if (TexToRender == 2) {
 		return position;
 	}
 	
-	// depth
-	float4 depth	= _mrtTextures.Sample( samPoint, float3(input.Tex, 3) );
-	if (TexToRender == 3)
-		return depth;
+	
 
 	// ambient occlusion
 	float4 ao;
@@ -179,9 +191,7 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	float3 L        = normalize(lightDir);
 	float3 reflectV = reflect(-L, normals.xyz);
 
-	// discard
-	if (depth.x == 0.0)
-		return float4( 0.0f, 0.125f, 0.3f, 1.0f );
+	
 
 	// diffuse
 	float4 dTerm = diffuse * max(dot(N, L), 0.0);
@@ -233,7 +243,7 @@ GS_IN VSMRT( VS_INPUT input )
     output.Pos = mul( output.PosWV, Projection );
     output.Norm = mul( input.Norm, World );
 	output.Norm = mul( output.Norm, View );
-    //output.Norm = mul( output.Norm, Projection );
+   // output.Norm = mul( output.Norm, Projection );
     output.Tex = input.Tex;
     
     return output;
@@ -283,14 +293,15 @@ float4 PSMRT( PS_MRT_INPUT input ) : SV_Target
 		return normal;
 	}
 	else if (input.RTIndex == 2) // position
-		return float4(input.PosWV.xyz, 1.0);//return float4(1.0, 0.0, 0.0, 1.0);
+		return input.PosWV;
+		//return float4(input.PosWV.xyz, 1.0);//return float4(1.0, 0.0, 0.0, 1.0);
 	else {						 // depth
 		float normalizedDistance = input.Pos.z / input.Pos.w;
 		//normalizedDistance = 1.0 / normalizedDistance;
 		// scale it from 0-1
 		//normalizedDistance = (normalizedDistance + 1.0) / 2.0;
-		normalizedDistance = normalizedDistance * 100;  // scale it
-		normalizedDistance = 1.0f - normalizedDistance; // dark to white, instead of the other way around (does it really matter?)
+		//normalizedDistance = normalizedDistance * 100;  // scale it
+		//normalizedDistance = 1.0f - normalizedDistance; // dark to white, instead of the other way around (does it really matter?)
 		return float4(normalizedDistance, normalizedDistance, normalizedDistance, normalizedDistance);
 	}
     //return input.Pos;
@@ -303,7 +314,16 @@ float4 PSMRT( PS_MRT_INPUT input ) : SV_Target
 
 float4 getPosition(in float2 uv)
 {
-	return _mrtTextures.Sample( samPoint, float3(uv, 2) );
+	//return _mrtTextures.Sample( samPoint, float3(uv, 2) );
+
+	float4 depth	= _mrtTextures.Sample( samPoint, float3(uv, 3) );
+	float4 H = float4(uv.x * 2 - 1, (1 - uv.y) * 2 - 1,  
+depth.x, 1);  
+	float4 D = mul(H, ProjectionInverse);
+	float4 position = D / D.w;
+	//position = 1.0 - position;
+	return position;
+
 }
 
 float4 getNormal(in float2 uv)
@@ -316,14 +336,14 @@ float4 getNormal(in float2 uv)
 float2 getRandom(in float2 uv)
 {
 	//return normalize(_vectorTexture.Sample( samPoint, uv ).xy) * 2.0f - 1.0f;
-	//return rand;
+	//return float2(-1, 1);
 	return normalize(_vectorTexture.Sample( samPoint, (float2(341, 256) * uv )/ 64.0).xy) * 2.0f - 1.0f;
 }
 
 float doAmbientOcclusion(in float2 tcoord,in float2 uv, in float3 p, in float3 cnorm)
 {
-	float g_scale = 0.9;
-	float g_intensity = 1.0;
+	float g_scale = 5;
+	float g_intensity = 4;
 	float g_bias = 0.05;
 
 	float3 diff = getPosition(tcoord + uv) - p;
@@ -354,7 +374,7 @@ float4 PSAO( PS_INPUT input ) : SV_Target
 	}
 	else {
 		float3 n = getNormal(uv).xyz;
-		float2 rand = getRandom(uv);
+		float2 rand = getRandom(input.Tex);//uv);
 		//float2 rand = float2(-1, -1);
 
 		float ao = 0.0f;
@@ -376,7 +396,7 @@ float4 PSAO( PS_INPUT input ) : SV_Target
 	 
 		ao/= ((float)ITERATIONS*4.0);
 
-		return float4(ao, ao, ao, 1.0);
+		return float4(1-ao, 1-ao, 1-ao, 1.0);
 	}
 
 	//return float4(0.0, 0.5, 0.0, 1.0);

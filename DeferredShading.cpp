@@ -60,6 +60,7 @@ ID3D10EffectShaderResourceVariable* g_ptxDiffuseVariable = NULL;
 ID3D10EffectMatrixVariable*         g_pWorldVariable = NULL;		// World Matrix 
 ID3D10EffectMatrixVariable*         g_pViewVariable = NULL;			// View Matrix
 ID3D10EffectMatrixVariable*         g_pProjectionVariable = NULL;	// Projection Matrix
+ID3D10EffectMatrixVariable*         g_pProjectionInverseVariable = NULL;	// Projection Matrix Inverse
 
 // Some scalar variables
 ID3D10EffectScalarVariable*         g_pPuffiness = NULL;
@@ -522,6 +523,7 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
 	g_pWorldVariable = g_pEffect->GetVariableByName( "World" )->AsMatrix();
     g_pViewVariable = g_pEffect->GetVariableByName( "View" )->AsMatrix();
     g_pProjectionVariable = g_pEffect->GetVariableByName( "Projection" )->AsMatrix();
+	g_pProjectionInverseVariable = g_pEffect->GetVariableByName( "ProjectionInverse" )->AsMatrix();
 	
 	// send in puffiness
     g_pPuffiness  = g_pEffect->GetVariableByName( "Puffiness" )->AsScalar();
@@ -804,9 +806,16 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
 	//pd3dDevice->RSSetViewports( 1, &OldVP );
 
 
+	// Temporary: Inverse Projection Matrix
+	D3DXMATRIX inverseProj, inverseView;
+	D3DXMatrixInverse(&inverseView, 0, g_Camera.GetViewMatrix() );
+	D3DXMatrixInverse(&inverseProj, 0, g_Camera.GetProjMatrix() );
+	inverseView = inverseView * inverseProj;
+	g_pProjectionInverseVariable->SetMatrix( inverseProj );
+
 	/** Now render the ambient occlusion texture - use mrts as input to generate it**/	
 	if (_ambientOcclusion)
-	RenderAmbientOcclusion(pd3dDevice);
+		RenderAmbientOcclusion(pd3dDevice);
 
 
 
@@ -851,6 +860,9 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
     g_pViewVariable->SetMatrix( ( float* )t_Camera.GetViewMatrix() );
     g_pWorldVariable->SetMatrix( ( float* )&t_World );
 
+	
+ 
+	
     //
     // Set the Vertex Layout
     //
@@ -985,10 +997,13 @@ void CALLBACK OnFrameMove( double fTime, float fElapsedTime, void* pUserContext 
     // Update the camera's position based on user input 
     g_Camera.FrameMove( fElapsedTime );
 
-    if( g_bSpinning )
+
+    if( g_bSpinning ) {
         D3DXMatrixRotationY( &g_World, 60.0f * DEG2RAD((float)fTime) );
-    else
+	}
+    else {
         D3DXMatrixRotationY( &g_World, DEG2RAD( 180.0f ) );
+	}
 
 	// rotate the scene
     D3DXMATRIX mRot, yRot;
