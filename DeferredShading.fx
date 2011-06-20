@@ -161,8 +161,9 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	//float4 position = _mrtTextures.Sample( samPoint, float3(input.Tex, 2) );
 	//position = mul(position, View);
 	//position = mul(position, Projection);
+	depth = 1.0 - depth;
 	float4 H = float4(input.Tex.x * 2.0 - 1.0, 
-					 (1 - input.Tex.y) * 2.0 - 1.0,  
+					 (1.0 - input.Tex.y) * 2.0 - 1.0,  
 					 depth.x,
 					 1);
 	float4 D = mul(H, ProjectionInverse);
@@ -176,7 +177,7 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	// ambient occlusion
 	float4 ao;
 	if (UseAO == true) {
-		ao		= _aoTexture.Sample( samPoint, input.Tex );
+		ao		= _aoTexture.Sample( samLinear, input.Tex );
 		if (TexToRender == 5)
 			return ao;
 	}
@@ -319,8 +320,10 @@ float4 getPosition(in float2 uv)
 	//return _mrtTextures.Sample( samPoint, float3(uv, 2) );
 
 	float4 depth	= _mrtTextures.Sample( samLinear, float3(uv, 3) );
-	float4 H = float4(uv.x * 2.0 - 1.0, (1.0 - uv.y) * 2.0 - 1.0,  
-depth.x, 1);  
+	float4 H = float4(uv.x * 2.0 - 1.0, 
+					 ( uv.y) * 2.0 - 1.0,  
+					  depth.x * 3,
+					  1);  
 	float4 D = mul(H, ProjectionInverse);
 	float4 position = D / D.w;
 	//position = 1.0 - position;
@@ -339,14 +342,15 @@ float2 getRandom(in float2 uv)
 {
 	//return normalize(_vectorTexture.Sample( samPoint, uv ).xy) * 2.0f - 1.0f;
 	//return float2(-1, 1);
-	return normalize(_vectorTexture.Sample( samPoint, (float2(341, 256) * uv )/ 64.0).xy) * 2.0f - 1.0f;
+	//return float2(-1, -1);
+	return normalize(_vectorTexture.Sample( samPoint, (float2(1024, 768) * uv )/ 64.0).xy) * 2.0f - 1.0f;
 }
 
 float doAmbientOcclusion(in float2 tcoord,in float2 uv, in float3 p, in float3 cnorm)
 {
-	float g_scale = 5;
-	float g_intensity = 4;
-	float g_bias = 0.05;
+	float g_scale = 4;
+	float g_intensity = 8;
+	float g_bias = 0.00;
 
 	float3 diff = getPosition(tcoord + uv) - p;
 	float3 v = normalize(diff);
@@ -396,9 +400,10 @@ float4 PSAO( PS_INPUT input ) : SV_Target
 			ao += doAmbientOcclusion(uv,coord2, p, n);
 		} 
 	 
-		ao/= ((float)ITERATIONS*4.0);
+		ao/= ((float)ITERATIONS*4);
 
 		return float4(1-ao, 1-ao, 1-ao, 1.0);
+		//return float4(ao, ao, ao, 1.0);
 	}
 
 	//return float4(0.0, 0.5, 0.0, 1.0);
