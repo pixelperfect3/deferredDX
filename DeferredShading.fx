@@ -161,8 +161,10 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	//float4 position = _mrtTextures.Sample( samPoint, float3(input.Tex, 2) );
 	//position = mul(position, View);
 	//position = mul(position, Projection);
-	float4 H = float4(input.Tex.x * 2 - 1, (1 - input.Tex.y) * 2 - 1,  
-	depth.x, 1);
+	float4 H = float4(input.Tex.x * 2.0 - 1.0, 
+					 (1 - input.Tex.y) * 2.0 - 1.0,  
+					 depth.x,
+					 1);
 	float4 D = mul(H, ProjectionInverse);
 	float4 position = D / D.w;
 	if (TexToRender == 2) {
@@ -301,7 +303,7 @@ float4 PSMRT( PS_MRT_INPUT input ) : SV_Target
 		// scale it from 0-1
 		//normalizedDistance = (normalizedDistance + 1.0) / 2.0;
 		//normalizedDistance = normalizedDistance * 100;  // scale it
-		//normalizedDistance = 1.0f - normalizedDistance; // dark to white, instead of the other way around (does it really matter?)
+		normalizedDistance = 1.0f - normalizedDistance; // dark to white, instead of the other way around (does it really matter?)
 		return float4(normalizedDistance, normalizedDistance, normalizedDistance, normalizedDistance);
 	}
     //return input.Pos;
@@ -316,8 +318,8 @@ float4 getPosition(in float2 uv)
 {
 	//return _mrtTextures.Sample( samPoint, float3(uv, 2) );
 
-	float4 depth	= _mrtTextures.Sample( samPoint, float3(uv, 3) );
-	float4 H = float4(uv.x * 2 - 1, (1 - uv.y) * 2 - 1,  
+	float4 depth	= _mrtTextures.Sample( samLinear, float3(uv, 3) );
+	float4 H = float4(uv.x * 2.0 - 1.0, (1.0 - uv.y) * 2.0 - 1.0,  
 depth.x, 1);  
 	float4 D = mul(H, ProjectionInverse);
 	float4 position = D / D.w;
