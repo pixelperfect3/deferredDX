@@ -146,8 +146,11 @@ float4 PSQuad( PS_INPUT input) : SV_Target
 	// normals 
 	float4 normals	= _mrtTextures.Sample( samPoint, float3(input.Tex, 1) );
 	normals =  (normals - 0.5) * 2.0;
-	if (TexToRender == 1)
-		return normals;
+	if (TexToRender == 1) {
+		//float4 final = (normals + diffuse)/2;
+		//final.a = 0.1;
+		return normals;//final;
+	}
 
 	// depth
 	float4 depth	= _mrtTextures.Sample( samPoint, float3(input.Tex, 3) );
@@ -409,6 +412,57 @@ float4 PSAO( PS_INPUT input ) : SV_Target
 	//return float4(0.0, 0.5, 0.0, 1.0);
 }
 
+const float blurSize = 1.0/768.0;
+
+//--------------------------------------------------------------------------------------
+// Pixel Shader for Horizontal Blur of AO
+//--------------------------------------------------------------------------------------
+float4 PSHBlur( PS_INPUT input ) : SV_Target
+{
+   float4 sum = float4(0.0, 0.0, 0.0, 0.0);
+   float2 uv = float2(1.0 - input.Tex.x, 1.0 - input.Tex.y); // align properly
+
+
+   // blur in y (vertical)
+   // take nine samples, with the distance blurSize between them
+   sum += _aoTexture.Sample( samPoint, float2(uv.x - 4.0*blurSize, uv.y)) * 0.05;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x - 3.0*blurSize, uv.y)) * 0.09;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x - 2.0*blurSize, uv.y)) * 0.12;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x - blurSize, uv.y))		* 0.15;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y))				* 0.16;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x + blurSize, uv.y))		* 0.15;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x + 2.0*blurSize, uv.y)) * 0.12;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x + 3.0*blurSize, uv.y)) * 0.09;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x + 4.0*blurSize, uv.y)) * 0.05;
+ 
+   return sum;
+	
+}
+
+//--------------------------------------------------------------------------------------
+// Pixel Shader for Vertical Blur of AO
+//--------------------------------------------------------------------------------------
+float4 PSVBlur( PS_INPUT input ) : SV_Target
+{
+   float4 sum = float4(0.0, 0.0, 0.0, 0.0);
+   float2 uv = float2(1.0 - input.Tex.x, 1.0 - input.Tex.y); // align properly
+
+   // blur in y (vertical)
+   // take nine samples, with the distance blurSize between them
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y - 4.0*blurSize )) * 0.05;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y - 3.0*blurSize )) * 0.09;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y - 2.0*blurSize )) * 0.12;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y - blurSize ))	 * 0.15;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y))				 * 0.16;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y + blurSize ))	 * 0.15;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y + 2.0*blurSize )) * 0.12;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y + 3.0*blurSize))  * 0.09;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y + 4.0*blurSize))  * 0.05;
+ 
+   return sum;
+	
+}
+
 
 //--------------------------------------------------------------------------------------
 // Technique
@@ -458,4 +512,25 @@ technique10 Render
         SetBlendState( NoBlending, float4( 0.0f, 0.0f, 0.0f, 0.0f ), 0xFFFFFFFF );
 	}
 
+	// horizontal blur
+	pass P4
+	{
+		SetVertexShader( CompileShader( vs_4_0, VS() ) );
+        SetGeometryShader( NULL );
+        SetPixelShader( CompileShader( ps_4_0, PSHBlur() ) );        
+
+        SetDepthStencilState( EnableDepth, 0 );
+        SetBlendState( NoBlending, float4( 0.0f, 0.0f, 0.0f, 0.0f ), 0xFFFFFFFF );
+	}
+
+	// vertical blur
+	pass P5
+	{
+		SetVertexShader( CompileShader( vs_4_0, VS() ) );
+        SetGeometryShader( NULL );
+        SetPixelShader( CompileShader( ps_4_0, PSVBlur() ) );        
+
+        SetDepthStencilState( EnableDepth, 0 );
+        SetBlendState( NoBlending, float4( 0.0f, 0.0f, 0.0f, 0.0f ), 0xFFFFFFFF );
+	}
 }

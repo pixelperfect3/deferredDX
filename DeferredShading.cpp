@@ -94,10 +94,38 @@ ID3D10ShaderResourceView*           _aoSRV;						// Shader resource view for the
 ID3D10Texture2D*                    _aoMapDepth;				// Depth stencil for the ao texture
 ID3D10DepthStencilView*             _aoDSV;						// Depth stencil view for the ao texture
 ID3D10EffectShaderResourceVariable* _aoTextureVariable = NULL;	// for sending in the ao texture
-ID3D10EffectScalarVariable*			g_UseAO = NULL;			// render AO or not?
+ID3D10EffectScalarVariable*			g_UseAO = NULL;				// render AO or not?
 // The random vector texture
 ID3D10ShaderResourceView*			_vectorSRV;
 ID3D10EffectShaderResourceVariable* _vectorVariable;
+
+// The gaussian blur texture (for Ambient Occlusion)
+bool								_gaussianBlur = true;		// gb off or on?
+ID3D10Texture2D*                    _gTex;						// Gaussian Blur texture
+ID3D10RenderTargetView*             _gRTV;						// Render target view for the gb texture
+ID3D10ShaderResourceView*           _gSRV;						// Shader resource view for the gb texture
+ID3D10Texture2D*                    _gMapDepth;					// Depth stencil for the gb texture
+ID3D10DepthStencilView*             _gDSV;						// Depth stencil view for the gb texture
+ID3D10EffectShaderResourceVariable* _gTextureVariable = NULL;	// for sending in the gb texture
+
+// horizontal blur
+ID3D10Texture2D*                    _hgTex;						// Gaussian Blur texture
+ID3D10RenderTargetView*             _hgRTV;						// Render target view for the gb texture
+ID3D10ShaderResourceView*           _hgSRV;						// Shader resource view for the gb texture
+ID3D10Texture2D*                    _hgMapDepth;				// Depth stencil for the gb texture
+ID3D10DepthStencilView*             _hgDSV;						// Depth stencil view for the gb texture
+//ID3D10EffectShaderResourceVariable* _gTextureVariable = NULL;	// for sending in the gb texture
+
+// vertical blur
+ID3D10Texture2D*                    _vgTex;						// Gaussian Blur texture
+ID3D10RenderTargetView*             _vgRTV;						// Render target view for the gb texture
+ID3D10ShaderResourceView*           _vgSRV;						// Shader resource view for the gb texture
+ID3D10Texture2D*                    _vgMapDepth;				// Depth stencil for the gb texture
+ID3D10DepthStencilView*             _vgDSV;						// Depth stencil view for the gb texture
+//ID3D10EffectShaderResourceVariable* _gTextureVariable = NULL;	// for sending in the gb texture
+
+
+ID3D10EffectScalarVariable*			g_UseGB = NULL;				// render GB or not?
 
 
 
@@ -407,7 +435,7 @@ HRESULT SetupMRTs(ID3D10Device* pd3dDevice) {
 }
 
 //----------------------------------------------
-// Sets up the Ambient Occlusion Texture
+// Sets up the Ambient Occlusion & Gaussian Blur Textures
 //----------------------------------------------
 HRESULT SetupAO(ID3D10Device* pd3dDevice) {
 	HRESULT hr;
@@ -415,7 +443,7 @@ HRESULT SetupAO(ID3D10Device* pd3dDevice) {
 	// Create depth stencil texture.
     D3D10_TEXTURE2D_DESC dstex;
 	ZeroMemory( &dstex, sizeof(dstex) );
-    dstex.Width = _width * TEXSCALE;
+    dstex.Width = _width * TEXSCALE;		// TODO: Maybe downsample for gaussian buffer?
     dstex.Height = _height * TEXSCALE;
     dstex.MipLevels = 1;
     dstex.ArraySize = 1;
@@ -425,55 +453,65 @@ HRESULT SetupAO(ID3D10Device* pd3dDevice) {
     dstex.Usage = D3D10_USAGE_DEFAULT;
     dstex.BindFlags =  D3D10_BIND_DEPTH_STENCIL;
     dstex.CPUAccessFlags = 0;
-    //dstex.MiscFlags = D3D10_RESOURCE_MISC_TEXTURECUBE;
 
 	_aoMapDepth = NULL;
 
-    V_RETURN(  pd3dDevice->CreateTexture2D( &dstex, NULL, &_aoMapDepth ));
+    V_RETURN(  pd3dDevice->CreateTexture2D( &dstex, NULL, &_aoMapDepth ));	// ambient occlusion
+	V_RETURN(  pd3dDevice->CreateTexture2D( &dstex, NULL, &_gMapDepth ));	// gaussian buffer
+	V_RETURN(  pd3dDevice->CreateTexture2D( &dstex, NULL, &_hgMapDepth ));	// horizontal
+	V_RETURN(  pd3dDevice->CreateTexture2D( &dstex, NULL, &_vgMapDepth ));	// vertical
 
     // Create the depth stencil view for the mrts
     D3D10_DEPTH_STENCIL_VIEW_DESC DescDS;
 	DescDS.Format = dstex.Format;
     DescDS.ViewDimension = D3D10_DSV_DIMENSION_TEXTURE2D;
-//    DescDS.Texture2D.FirstArraySlice = 0;
-//    DescDS.Texture2D.ArraySize = 1;
     DescDS.Texture2D.MipSlice = 0;
 
 	_aoDSV = NULL;
+	_gDSV = NULL;
+	_hgDSV = NULL;
+	_vgDSV = NULL;
 
-    V_RETURN (  pd3dDevice->CreateDepthStencilView( _aoMapDepth, &DescDS, &_aoDSV ) );
+    V_RETURN (  pd3dDevice->CreateDepthStencilView( _aoMapDepth, &DescDS, &_aoDSV ) );	// ao
+	V_RETURN (  pd3dDevice->CreateDepthStencilView( _gMapDepth, &DescDS, &_gDSV ) );	// gaussian
+	V_RETURN (  pd3dDevice->CreateDepthStencilView( _gMapDepth, &DescDS, &_hgDSV ) );	// gaussian
+	V_RETURN (  pd3dDevice->CreateDepthStencilView( _gMapDepth, &DescDS, &_vgDSV ) );	// gaussian
 
     // Create all the multiple render target textures
     dstex.Format = DXGI_FORMAT_R16G16B16A16_UNORM;
     dstex.BindFlags = D3D10_BIND_RENDER_TARGET | D3D10_BIND_SHADER_RESOURCE;
-    //dstex.MiscFlags = D3D10_RESOURCE_MISC_GENERATE_MIPS;
-    //dstex.MipLevels = 2;
+ 
 	_aoTex = NULL;
-    V_RETURN ( pd3dDevice->CreateTexture2D( &dstex, NULL, &_aoTex ) );
+    V_RETURN ( pd3dDevice->CreateTexture2D( &dstex, NULL, &_aoTex ) );	// ao
+	V_RETURN ( pd3dDevice->CreateTexture2D( &dstex, NULL, &_gTex ) );	// gaussian
+	V_RETURN ( pd3dDevice->CreateTexture2D( &dstex, NULL, &_hgTex ) );	// horizontal
+	V_RETURN ( pd3dDevice->CreateTexture2D( &dstex, NULL, &_vgTex ) );	// vertical
 
 	// Create one render target view
     D3D10_RENDER_TARGET_VIEW_DESC DescRT;
     DescRT.Format = dstex.Format;
     DescRT.ViewDimension = D3D10_RTV_DIMENSION_TEXTURE2D;
-//    DescRT.Texture2D.FirstArraySlice = 0;
-//    DescRT.Texture2D.ArraySize = 1;
-    DescRT.Texture2D.MipSlice = 0;
-    V_RETURN ( pd3dDevice->CreateRenderTargetView( _aoTex, &DescRT, &_aoRTV ) ); 
 
-	// Create the shader resource view for the cubic env map
+    DescRT.Texture2D.MipSlice = 0;
+    V_RETURN ( pd3dDevice->CreateRenderTargetView( _aoTex, &DescRT, &_aoRTV ) );	// ao
+	V_RETURN ( pd3dDevice->CreateRenderTargetView( _gTex, &DescRT, &_gRTV ) );		// gaussian
+	V_RETURN ( pd3dDevice->CreateRenderTargetView( _hgTex, &DescRT, &_hgRTV ) );	// horizontal
+	V_RETURN ( pd3dDevice->CreateRenderTargetView( _vgTex, &DescRT, &_vgRTV ) );	// vertical
+
+	// Create the shader resource views
     D3D10_SHADER_RESOURCE_VIEW_DESC SRVDesc;
     ZeroMemory( &SRVDesc, sizeof( SRVDesc ) );
 	SRVDesc.Format = dstex.Format;
     SRVDesc.ViewDimension = D3D10_SRV_DIMENSION_TEXTURE2D;
-	//SRVDesc.Texture2DArray;
-//	SRVDesc.Texture2D.ArraySize = 1;
-//	SRVDesc.Texture2D.FirstArraySlice = 0;
+	
 	SRVDesc.Texture2D.MipLevels = 1;
-    //SRVDesc.TextureCube.MipLevels = 1;
+
     SRVDesc.Texture2D.MostDetailedMip = 0;
 	_aoSRV = NULL;
     V_RETURN ( pd3dDevice->CreateShaderResourceView( _aoTex, &SRVDesc, &_aoSRV ) );
-
+	V_RETURN ( pd3dDevice->CreateShaderResourceView( _gTex, &SRVDesc, &_gSRV ) );
+	V_RETURN ( pd3dDevice->CreateShaderResourceView( _hgTex, &SRVDesc, &_hgSRV ) );
+	V_RETURN ( pd3dDevice->CreateShaderResourceView( _vgTex, &SRVDesc, &_vgSRV ) );
 	return S_OK;
 }
 
@@ -557,7 +595,7 @@ HRESULT CALLBACK OnD3D10CreateDevice( ID3D10Device* pd3dDevice, const DXGI_SURFA
     pd3dDevice->IASetInputLayout( g_pVertexLayout );
 
     // Load the mesh
-    V_RETURN( g_Mesh.Create( pd3dDevice, L"Tiny\\Tiny.sdkmesh", true ) );
+    V_RETURN( g_Mesh.Create( pd3dDevice, L"Tiny\\tiny.sdkmesh", true ) );
 
     // Initialize the world matrices
     D3DXMatrixIdentity( &g_World );
@@ -771,11 +809,46 @@ void RenderAmbientOcclusion( ID3D10Device* pd3dDevice) {
 	D3D10_TECHNIQUE_DESC techDesc;
 	g_pTechnique->GetDesc( &techDesc );
 
-	// apply regular rendering
+	// apply ambient occlusion pass
     g_pTechnique->GetPassByIndex(3)->Apply(0);
 	// draw
 	pd3dDevice->DrawIndexed(_numIQuad, 0, 0);
 
+	/**** APPLY HORIZONTAL BLUR ****/
+	// Change render targets first
+    
+	pd3dDevice->ClearRenderTargetView( _hgRTV, ClearColor );
+    pd3dDevice->ClearDepthStencilView( _hgDSV, D3D10_CLEAR_DEPTH, 1.0, 0 );
+	
+	// Set all the render targets
+    aRTViews[ 0 ] = _hgRTV;
+	pd3dDevice->OMSetRenderTargets( numRenderTargets, aRTViews, _hgDSV );
+
+	// send in the ambient occlusion texture
+	_aoTextureVariable->SetResource(  _aoSRV );
+
+	// apply blur pass
+    g_pTechnique->GetPassByIndex(4)->Apply(0);
+	// draw
+	pd3dDevice->DrawIndexed(_numIQuad, 0, 0);
+
+	/**** APPLY VERTICAL BLUR ****/
+	// Change render targets first
+    
+	pd3dDevice->ClearRenderTargetView( _vgRTV, ClearColor );
+    pd3dDevice->ClearDepthStencilView( _vgDSV, D3D10_CLEAR_DEPTH, 1.0, 0 );
+	
+	// Set all the render targets
+    aRTViews[ 0 ] = _vgRTV;
+	pd3dDevice->OMSetRenderTargets( numRenderTargets, aRTViews, _vgDSV );
+
+	// send in the ambient occlusion texture
+	_aoTextureVariable->SetResource( _hgSRV );
+
+	// apply blur pass
+    g_pTechnique->GetPassByIndex(5)->Apply(0);
+	// draw
+	pd3dDevice->DrawIndexed(_numIQuad, 0, 0);
 
 } // End Render Textures
 
@@ -875,7 +948,7 @@ void CALLBACK OnD3D10FrameRender( ID3D10Device* pd3dDevice, double fTime, float 
 	_mrtTextureVariable->SetResource(  _mrtSRV );
 	
 	// Ambient Occlusion Texture
-	_aoTextureVariable->SetResource(  _aoSRV );
+	_aoTextureVariable->SetResource(  _vgSRV );//_aoSRV );
 
 	// Send in which texture to render
 	g_TexToRender->SetInt( _textureToRender );
@@ -999,17 +1072,19 @@ void CALLBACK OnFrameMove( double fTime, float fElapsedTime, void* pUserContext 
 
 
     if( g_bSpinning ) {
-        D3DXMatrixRotationY( &g_World, 60.0f * DEG2RAD((float)fTime) );
+        D3DXMatrixRotationZ( &g_World, 60.0f * DEG2RAD((float)fTime) );
 	}
     else {
-        D3DXMatrixRotationY( &g_World, DEG2RAD( 180.0f ) );
+		D3DXMatrixRotationZ( &g_World, DEG2RAD( 180.0f ) );
+        //D3DXMatrixRotationZ( &g_World, DEG2RAD( 180.0f ) );
 	}
 
 	// rotate the scene
     D3DXMATRIX mRot, yRot;
-    D3DXMatrixRotationX( &mRot, DEG2RAD( 90.0f ) );
-	D3DXMatrixRotationY( &yRot, DEG2RAD( 180.0f ) );
-    g_World = mRot * yRot * g_World;
+    //D3DXMatrixRotationX( &mRot, DEG2RAD( 90.0f ) );
+	//D3DXMatrixRotationY( &yRot, DEG2RAD( 180.0f ) );
+	
+    //g_World = mRot * yRot * g_World;
 }
 
 
