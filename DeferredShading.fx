@@ -416,6 +416,7 @@ const float blurSize = 1.0/768.0;
 
 //--------------------------------------------------------------------------------------
 // Pixel Shader for Horizontal Blur of AO
+// http://www.gamerendering.com/2008/10/11/gaussian-blur-filter-shader/
 //--------------------------------------------------------------------------------------
 float4 PSHBlur( PS_INPUT input ) : SV_Target
 {
@@ -429,7 +430,7 @@ float4 PSHBlur( PS_INPUT input ) : SV_Target
    sum += _aoTexture.Sample( samPoint, float2(uv.x - 3.0*blurSize, uv.y)) * 0.09;
    sum += _aoTexture.Sample( samPoint, float2(uv.x - 2.0*blurSize, uv.y)) * 0.12;
    sum += _aoTexture.Sample( samPoint, float2(uv.x - blurSize, uv.y))		* 0.15;
-   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y))				* 0.16;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y))				* 0.18;
    sum += _aoTexture.Sample( samPoint, float2(uv.x + blurSize, uv.y))		* 0.15;
    sum += _aoTexture.Sample( samPoint, float2(uv.x + 2.0*blurSize, uv.y)) * 0.12;
    sum += _aoTexture.Sample( samPoint, float2(uv.x + 3.0*blurSize, uv.y)) * 0.09;
@@ -453,7 +454,7 @@ float4 PSVBlur( PS_INPUT input ) : SV_Target
    sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y - 3.0*blurSize )) * 0.09;
    sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y - 2.0*blurSize )) * 0.12;
    sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y - blurSize ))	 * 0.15;
-   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y))				 * 0.16;
+   sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y))				 * 0.18;
    sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y + blurSize ))	 * 0.15;
    sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y + 2.0*blurSize )) * 0.12;
    sum += _aoTexture.Sample( samPoint, float2(uv.x, uv.y + 3.0*blurSize))  * 0.09;
